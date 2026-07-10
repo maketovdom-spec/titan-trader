@@ -1,0 +1,81 @@
+name: Build TITAN APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential git ffmpeg \
+          libsdl2-dev libsdl2-image-dev \
+          libsdl2-mixer-dev libsdl2-ttf-dev \
+          libportmidi-dev libswscale-dev \
+          libavformat-dev libavcodec-dev \
+          zlib1g-dev libgstreamer1.0-0 \
+          gstreamer1.0-plugins-base \
+          gstreamer1.0-plugins-good \
+          openjdk-17-jdk autoconf \
+          libtool pkg-config unzip cmake
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install buildozer cython==0.29.36
+
+    - name: Create buildozer.spec
+      run: |
+        cat > buildozer.spec << 'EOF'
+        [app]
+        title = TITAN Trader
+        package.name = titantrader
+        package.domain = org.titan
+        source.dir = .
+        source.include_exts = py,png,jpg,kv,atlas,json
+        version = 1.0.0
+        requirements = python3,kivy,aiohttp,pytz,async_timeout
+        android.permissions = INTERNET,ACCESS_NETWORK_STATE,WAKE_LOCK,FOREGROUND_SERVICE
+        android.api = 33
+        android.minapi = 21
+        android.ndk_api = 21
+        android.accept_sdk_license = True
+        orientation = portrait
+        fullscreen = 0
+        log_level = 2
+        warn_on_root = 0
+
+        [buildozer]
+        log_level = 2
+        warn_on_root = 0
+        EOF
+
+    - name: Build APK
+      run: yes | buildozer android debug
+
+    - name: Find APK
+      id: find_apk
+      run: |
+        APK_PATH=$(find . -name "*.apk" -type f | head -n 1)
+        echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
+        echo "Found: $APK_PATH"
+
+    - name: Upload APK
+      uses: actions/upload-artifact@v3
+      with:
+        name: titan-trader-apk
+        path: ${{ steps.find_apk.outputs.apk_path }}
