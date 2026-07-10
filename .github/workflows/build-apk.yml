@@ -17,6 +17,9 @@ jobs:
     - name: Rename to main.py
       run: cp titan_pro.py main.py
 
+    - name: Set root permission
+      run: echo "BUILDOZER_ALLOW_ROOT=1" >> $GITHUB_ENV
+
     - name: Create buildozer.spec
       run: |
         cat > buildozer.spec << 'EOF'
@@ -28,21 +31,24 @@ jobs:
         source.main = main.py
         source.include_exts = py,png,jpg,kv,atlas,json
         version = 1.0.0
-        requirements = python3,kivy
+        requirements = python3,kivy,aiohttp,pytz
         android.permissions = INTERNET,ACCESS_NETWORK_STATE,WAKE_LOCK
         android.api = 33
         android.minapi = 21
         android.ndk_api = 21
+        android.accept_sdk_license = True
         orientation = portrait
+        fullscreen = 0
         log_level = 2
+        warn_on_root = 0
 
         [buildozer]
         log_level = 2
+        warn_on_root = 0
         EOF
 
     - name: Build APK
-      run: |
-        buildozer android debug
+      run: buildozer android debug
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
