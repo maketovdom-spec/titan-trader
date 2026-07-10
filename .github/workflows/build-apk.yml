@@ -20,6 +20,12 @@ jobs:
     - name: Set root permission
       run: echo "BUILDOZER_ALLOW_ROOT=1" >> $GITHUB_ENV
 
+    - name: Accept Android SDK licenses
+      run: |
+        yes | sdkmanager --licenses || true
+        mkdir -p ~/.android
+        touch ~/.android/repositories.cfg
+
     - name: Create buildozer.spec
       run: |
         cat > buildozer.spec << 'EOF'
@@ -48,7 +54,7 @@ jobs:
         EOF
 
     - name: Build APK
-      run: buildozer android debug
+      run: yes | buildozer android debug
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
