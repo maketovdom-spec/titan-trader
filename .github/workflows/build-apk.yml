@@ -8,11 +8,43 @@ on:
 jobs:
   build-apk:
     runs-on: ubuntu-22.04
-    container: kivy/buildozer:latest
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Free disk space
+      run: |
+        sudo apt-get clean
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        df -h
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential git ffmpeg wget \
+          libsdl2-dev libsdl2-image-dev \
+          libsdl2-mixer-dev libsdl2-ttf-dev \
+          libportmidi-dev libswscale-dev \
+          libavformat-dev libavcodec-dev \
+          zlib1g-dev libgstreamer1.0-0 \
+          gstreamer1.0-plugins-base \
+          gstreamer1.0-plugins-good \
+          openjdk-17-jdk autoconf \
+          libtool libtool-bin pkg-config \
+          unzip cmake libffi-dev \
+          python3-dev automake
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install buildozer cython==3.0.3
 
     - name: Rename to main.py
       run: cp titan_pro.py main.py
@@ -22,9 +54,9 @@ jobs:
 
     - name: Accept Android SDK licenses
       run: |
-        yes | sdkmanager --licenses || true
         mkdir -p ~/.android
         touch ~/.android/repositories.cfg
+        yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
     - name: Create buildozer.spec
       run: |
@@ -37,11 +69,12 @@ jobs:
         source.main = main.py
         source.include_exts = py,png,jpg,kv,atlas,json
         version = 1.0.0
-        requirements = python3,kivy,aiohttp,pytz
+        requirements = python3,kivy,aiohttp,pytz,async_timeout,openssl,libffi
         android.permissions = INTERNET,ACCESS_NETWORK_STATE,WAKE_LOCK
         android.api = 33
         android.minapi = 21
         android.ndk_api = 21
+        android.ndk = 25c
         android.accept_sdk_license = True
         orientation = portrait
         fullscreen = 0
@@ -56,9 +89,21 @@ jobs:
     - name: Build APK
       run: yes | buildozer android debug
 
+    - name: Find APK
+      id: find_apk
+      run: |
+        APK_PATH=$(find . -name "*.apk" -type f | head -n 1)
+        if [ -n "$APK_PATH" ]; then
+          echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
+          echo "APK found: $APK_PATH"
+        else
+          echo "APK not found"
+          exit 1
+        fi
+
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: titan-pro-apk
-        path: bin/*.apk
+        path: ${{ steps.find_apk.outputs.apk_path }}
         retention-days: 30
