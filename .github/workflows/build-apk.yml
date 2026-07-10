@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-apk:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     
     steps:
     - name: Checkout code
@@ -31,7 +31,9 @@ jobs:
           gstreamer1.0-plugins-base \
           gstreamer1.0-plugins-good \
           openjdk-17-jdk autoconf \
-          libtool pkg-config unzip cmake wget
+          libtool libtool-bin pkg-config \
+          unzip cmake wget libffi-dev \
+          python3-dev automake
 
     - name: Install Python dependencies
       run: |
@@ -73,9 +75,9 @@ jobs:
         APK_PATH=$(find . -name "*.apk" -type f | head -n 1)
         if [ -n "$APK_PATH" ]; then
           echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
-          echo "✅ APK found: $APK_PATH"
+          echo "APK found: $APK_PATH"
         else
-          echo " APK not found"
+          echo "APK not found"
           exit 1
         fi
 
