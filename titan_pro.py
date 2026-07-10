@@ -6,6 +6,7 @@ import asyncio
 import uuid
 import logging
 import ssl
+import threading
 from datetime import datetime as dt
 from typing import Dict, Optional
 
@@ -25,7 +26,7 @@ from kivy.clock import Clock
 from kivy.metrics import dp
 
 # ============================================================================
-# КОНФИГУРАЦИЯ (БЕЗ MAX!)
+# КОНФИГУРАЦИЯ
 # ============================================================================
 logging.basicConfig(
     level=logging.INFO,
@@ -112,7 +113,7 @@ def save_state_atomic(data: dict):
 
 
 # ============================================================================
-# TITAN MONOLITH CORE (БЕЗ ИЗМЕНЕНИЙ!)
+# TITAN MONOLITH CORE (потокобезопасная версия)
 # ============================================================================
 class TitanAbsoluteMonolith:
     ASSET_PARAMS = {
@@ -128,6 +129,7 @@ class TitanAbsoluteMonolith:
         self.mode = CONFIG.get("MODE", "TEST")
         self.tz = moscow_tz
         self.data = load_state()
+        self._data_lock = threading.RLock()  # реентерабельная блокировка
 
         self.price_history: Dict[str, list] = {t: [] for t in BASE_ASSETS}
         self.iq_history: Dict[str, list] = {t: [] for t in BASE_ASSETS}
@@ -142,6 +144,38 @@ class TitanAbsoluteMonolith:
         self.jwt_expiry: float = 0
         self._jwt_lock = asyncio.Lock()
         self._http: Optional[aiohttp.ClientSession] = None
+        self._loop = None  # event loop фонового потока
+
+    def run_async_threadsafe(self, coro):
+        """Вызвать из UI для передачи корутины в asyncio loop"""
+        if self._loop and self._loop.is_running():
+            asyncio.run_coroutine_threadsafe(coro, self._loop)
+        else:
+            logger.error("Async loop not running")
+
+    def get_safe_data(self):
+        """Безопасное чтение данных для UI (с копиями изменяемых структур)"""
+        with self._data_lock:
+            # копируем рыночные данные для экрана Market
+            market_data = {}
+            for ticker in BASE_ASSETS:
+                iq_hist = self.iq_history.get(ticker, [])
+                price_hist = self.price_history.get(ticker, [])
+                market_data[ticker] = {
+                    "iq": iq_hist[-1] if iq_hist else 0,
+                    "price": price_hist[-1] if price_hist else 0
+                }
+            return {
+                "total_pnl": self.data.get("total_pnl", 0.0),
+                "daily_pnl": self.data.get("daily_pnl", 0.0),
+                "test_pnl": self.data.get("test_pnl", 0.0),
+                "search_active": self.data.get("search_active", True),
+                "mode": self.mode,
+                "pos": dict(self.data.get("pos", {})),
+                "test_pos": dict(self.data.get("test_pos", {})),
+                "trade_history": list(self.data.get("trade_history", [])),
+                "market": market_data
+            }
 
     async def start(self):
         self._http = aiohttp.ClientSession()
@@ -261,11 +295,12 @@ class TitanAbsoluteMonolith:
         await loop.run_in_executor(None, save_state_atomic, self.data)
 
     async def exit_trade(self, ticker: str, price: float, reason: str, prof: float):
-        plist = self.data["pos"] if self.mode == "REAL" else self.data["test_pos"]
-        ll = self.data["limits"] if self.mode == "REAL" else self.data["test_limits"]
-        p = plist.get(ticker)
-        if not p:
-            return
+        with self._data_lock:
+            plist = self.data["pos"] if self.mode == "REAL" else self.data["test_pos"]
+            ll = self.data["limits"] if self.mode == "REAL" else self.data["test_limits"]
+            p = plist.get(ticker)
+            if not p:
+                return
 
         await self.send_order(ticker, "SELL", p["lot"], price, p["mkt"])
         spec = self.ASSET_PARAMS.get(ticker, self.ASSET_PARAMS["DEFAULT"])
@@ -280,26 +315,28 @@ class TitanAbsoluteMonolith:
             pos_val = p["lot"] * p["p"]
             net = round(pos_val * prof - pos_val * spec.get("comm_buffer", 0.0005), 2)
 
-        ll[p["mkt"]] = round(ll.get(p["mkt"], 0.0) + p.get("frozen_margin", 0.0) + net, 2)
-        self.data["army"][ticker]["pnl_today"] += net
+        with self._data_lock:
+            ll[p["mkt"]] = round(ll.get(p["mkt"], 0.0) + p.get("frozen_margin", 0.0) + net, 2)
+            self.data["army"][ticker]["pnl_today"] += net
 
-        if self.mode == "REAL":
-            self.data["total_pnl"] += net
-            self.data["daily_pnl"] += net
-        else:
-            self.data.setdefault("test_pnl", 0.0)
-            self.data["test_pnl"] += net
+            if self.mode == "REAL":
+                self.data["total_pnl"] += net
+                self.data["daily_pnl"] += net
+            else:
+                self.data.setdefault("test_pnl", 0.0)
+                self.data["test_pnl"] += net
 
-        trade_record = {
-            "ticker": ticker, "side": p["side"], "entry_price": p["p"],
-            "exit_price": price, "lot": p["lot"], "pnl": net,
-            "reason": reason, "time": dt.now(self.tz).strftime("%Y-%m-%d %H:%M:%S")
-        }
-        self.data["trade_history"].append(trade_record)
-        if len(self.data["trade_history"]) > 50:
-            self.data["trade_history"] = self.data["trade_history"][-50:]
+            trade_record = {
+                "ticker": ticker, "side": p["side"], "entry_price": p["p"],
+                "exit_price": price, "lot": p["lot"], "pnl": net,
+                "reason": reason, "time": dt.now(self.tz).strftime("%Y-%m-%d %H:%M:%S")
+            }
+            self.data["trade_history"].append(trade_record)
+            if len(self.data["trade_history"]) > 50:
+                self.data["trade_history"] = self.data["trade_history"][-50:]
 
-        del plist[ticker]
+            del plist[ticker]
+
         await self.safe_save()
         logger.info(f"🏁 ВЫХОД {ticker} ({reason}) | PnL: {net}₽")
 
@@ -343,85 +380,102 @@ class TitanAbsoluteMonolith:
         if len(iqh) > 15:
             iqh.pop(0)
 
-        if self.data["day_open_prices"].get(ticker, 0) == 0:
-            self.data["day_open_prices"][ticker] = price
-            await self.safe_save()
+        need_exit = False
+        exit_price = 0.0
+        exit_reason = ""
+        exit_prof = 0.0
 
-        active_pos = self.data["pos"] if self.mode == "REAL" else self.data["test_pos"]
-        active_limits = self.data["limits"] if self.mode == "REAL" else self.data["test_limits"]
+        with self._data_lock:
+            if self.data["day_open_prices"].get(ticker, 0) == 0:
+                self.data["day_open_prices"][ticker] = price
 
-        if ticker in active_pos:
-            p = active_pos[ticker]
+            active_pos = self.data["pos"] if self.mode == "REAL" else self.data["test_pos"]
+            active_limits = self.data["limits"] if self.mode == "REAL" else self.data["test_limits"]
 
-            if p.get("status") == "SHADOW":
-                if cur_iq >= 3.0:
-                    p["status"] = "FIRM"
-                    p["entry_iq_real"] = cur_iq
-                    await self.safe_save()
-                    logger.info(f"💎 ПОДТВЕРЖДЕНО: {ticker}")
-                return
+            if ticker in active_pos:
+                p = active_pos[ticker]
 
-            prof = ((price - p["p"]) / p["p"]) if p["side"] == "BUY" else ((p["p"] - price) / p["p"])
-            hold_time = (dt.now(self.tz) - dt.fromtimestamp(p.get("entry_time", time.time()), self.tz)).seconds
+                if p.get("status") == "SHADOW":
+                    if cur_iq >= 3.0:
+                        p["status"] = "FIRM"
+                        p["entry_iq_real"] = cur_iq
+                        logger.info(f"💎 ПОДТВЕРЖДЕНО: {ticker}")
+                    return
 
-            if p["side"] == "BUY" and snap["ask_wall"] > 0 and price < snap["ask_wall"] and cur_iq < 0.8:
-                await self.exit_trade(ticker, price, "WALL-REJECTION", prof)
-                return
+                prof = ((price - p["p"]) / p["p"]) if p["side"] == "BUY" else ((p["p"] - price) / p["p"])
+                hold_time = (dt.now(self.tz) - dt.fromtimestamp(p.get("entry_time", time.time()), self.tz)).seconds
 
-            cr = spec.get("comm_buffer", 0.0005)
-            if cur_iq < 1.0 and prof < -(cr * 1.5):
-                await self.exit_trade(ticker, price, "REVERSAL-EXIT", prof)
-                return
+                exit_condition = False
+                if p["side"] == "BUY" and snap["ask_wall"] > 0 and price < snap["ask_wall"] and cur_iq < 0.8:
+                    exit_reason = "WALL-REJECTION"
+                    exit_prof = prof
+                    exit_condition = True
 
-            hold_mult = 0.50 if hold_time < 15 else (0.80 if prof < 0.0015 else 0.60)
-            if cur_iq <= p.get("entry_iq_real", 3.0) * hold_mult:
-                await self.exit_trade(ticker, price, "IQ-DYNAMIC-EXIT", prof)
-                return
+                cr = spec.get("comm_buffer", 0.0005)
+                if not exit_condition and cur_iq < 1.0 and prof < -(cr * 1.5):
+                    exit_reason = "REVERSAL-EXIT"
+                    exit_prof = prof
+                    exit_condition = True
 
-            if prof > 0.003:
-                tr = (
-                    p["p"] + (p["p"] * DIANA_TIGHT_TRAIL)
-                    if p["side"] == "BUY"
-                    else p["p"] - (p["p"] * DIANA_TIGHT_TRAIL)
-                )
-                if (price > tr and p["side"] == "BUY") or (price < tr and p["side"] == "SELL"):
-                    p["p"] = tr
-                    await self.safe_save()
+                if not exit_condition:
+                    hold_mult = 0.50 if hold_time < 15 else (0.80 if prof < 0.0015 else 0.60)
+                    if cur_iq <= p.get("entry_iq_real", 3.0) * hold_mult:
+                        exit_reason = "IQ-DYNAMIC-EXIT"
+                        exit_prof = prof
+                        exit_condition = True
 
-        else:
-            if not self.data.get("search_active", True):
-                return
-            
-            dpnl = self.data["daily_pnl"] if self.mode == "REAL" else self.data.get("test_pnl", 0.0)
-            if dpnl < -DAILY_LIMIT_PCT * 100:
-                return
-            if active_limits.get(mkt, 0) <= 0:
-                return
-            if not self.check_volatility(ticker, price):
-                return
+                if exit_condition:
+                    need_exit = True
+                    exit_price = price
+                    # не вызываем exit_trade здесь, выйдем из блока with и вызовем снаружи
 
-            iq_thr = IQ_FUTURES_THRESHOLD if ticker in ("GOLD", "Si") else IQ_STOCKS_THRESHOLD
-            if cur_iq < iq_thr:
-                return
+                # Trailing stop (обновление без выхода)
+                if not need_exit and prof > 0.003:
+                    tr = (
+                        p["p"] + (p["p"] * DIANA_TIGHT_TRAIL)
+                        if p["side"] == "BUY"
+                        else p["p"] - (p["p"] * DIANA_TIGHT_TRAIL)
+                    )
+                    if (price > tr and p["side"] == "BUY") or (price < tr and p["side"] == "SELL"):
+                        p["p"] = tr
+            else:
+                if not self.data.get("search_active", True):
+                    return
+                
+                dpnl = self.data["daily_pnl"] if self.mode == "REAL" else self.data.get("test_pnl", 0.0)
+                if dpnl < -DAILY_LIMIT_PCT * 100:
+                    return
+                if active_limits.get(mkt, 0) <= 0:
+                    return
+                if not self.check_volatility(ticker, price):
+                    return
 
-            risk = MARGIN_FACTOR * active_limits.get(mkt, 10000)
-            lot = min(max(1, int(risk / (price * 0.01))), MAX_POSITION_LOTS)
-            frozen = (risk * 0.3) + (spec.get("comm_fixed", 2.0) * lot)
-            active_limits[mkt] = round(active_limits.get(mkt, 0.0) - frozen, 2)
+                iq_thr = IQ_FUTURES_THRESHOLD if ticker in ("GOLD", "Si") else IQ_STOCKS_THRESHOLD
+                if cur_iq < iq_thr:
+                    return
 
-            side = "BUY" if snap["bid_power"] > snap["ask_power"] else "SELL"
-            pos = {
-                "ticker": ticker, "side": side, "lot": lot, "p": price, "mkt": mkt,
-                "entry_time": time.time(), "status": "SHADOW", "frozen_margin": frozen,
-                "comm_paid": 0.0, "entry_iq_real": cur_iq, "peak_iq": cur_iq, "max_prof": 0.0
-            }
-            active_pos[ticker] = pos
-            await self.safe_save()
-            logger.info(f"🚀 ОТКРЫТА: {ticker} ({side}) {lot} лотов @ {price} | IQ: {cur_iq}")
+                risk = MARGIN_FACTOR * active_limits.get(mkt, 10000)
+                lot = min(max(1, int(risk / (price * 0.01))), MAX_POSITION_LOTS)
+                frozen = (risk * 0.3) + (spec.get("comm_fixed", 2.0) * lot)
+                active_limits[mkt] = round(active_limits.get(mkt, 0.0) - frozen, 2)
+
+                side = "BUY" if snap["bid_power"] > snap["ask_power"] else "SELL"
+                pos = {
+                    "ticker": ticker, "side": side, "lot": lot, "p": price, "mkt": mkt,
+                    "entry_time": time.time(), "status": "SHADOW", "frozen_margin": frozen,
+                    "comm_paid": 0.0, "entry_iq_real": cur_iq, "peak_iq": cur_iq, "max_prof": 0.0
+                }
+                active_pos[ticker] = pos
+                logger.info(f"🚀 ОТКРЫТА: {ticker} ({side}) {lot} лотов @ {price} | IQ: {cur_iq}")
+
+        if need_exit:
+            await self.exit_trade(ticker, exit_price, exit_reason, exit_prof)
+
+        await self.safe_save()
 
 
 # ============================================================================
-# WEBSOCKET MARKET DATA (БЕЗ ИЗМЕНЕНИЙ!)
+# WEBSOCKET MARKET DATA
 # ============================================================================
 ALOR_WS_URL = "wss://api.alor.ru/ws"
 
@@ -459,8 +513,12 @@ async def ws_market_data_feed(bot: TitanAbsoluteMonolith):
 
             logger.info(f"🔗 Подключение к Alor WebSocket: {ALOR_WS_URL}")
 
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+
             async with aiohttp.ClientSession() as session:
-                async with session.ws_connect(ALOR_WS_URL, heartbeat=30) as ws:
+                async with session.ws_connect(ALOR_WS_URL, heartbeat=30, ssl=ssl_context) as ws:
                     logger.info("✅ WS-соединение установлено")
 
                     for ticker in BASE_ASSETS:
@@ -504,16 +562,15 @@ async def ws_market_data_feed(bot: TitanAbsoluteMonolith):
 
 
 # ============================================================================
-# НОВЫЙ UI: DASHBOARD
+# UI: DASHBOARD
 # ============================================================================
 class DashboardScreen(Screen):
-    def __init__(self, bot: TitanAbsoluteMonolith, **kwargs):
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.bot = bot
+        self.bot = None
         
         layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
         
-        # Заголовок
         title = Label(
             text="🚀 TITAN Pro",
             font_size=dp(28),
@@ -524,7 +581,6 @@ class DashboardScreen(Screen):
         )
         layout.add_widget(title)
         
-        # Общий PnL
         self.pnl_label = Label(
             text="💰 Общий PnL: 0₽",
             font_size=dp(24),
@@ -535,7 +591,6 @@ class DashboardScreen(Screen):
         )
         layout.add_widget(self.pnl_label)
         
-        # Дневной PnL
         self.daily_pnl_label = Label(
             text="📊 Сегодня: 0₽",
             font_size=dp(20),
@@ -545,7 +600,6 @@ class DashboardScreen(Screen):
         )
         layout.add_widget(self.daily_pnl_label)
         
-        # Статус
         self.status_label = Label(
             text="⏸️ Статус: ПАУЗА",
             font_size=dp(18),
@@ -555,7 +609,6 @@ class DashboardScreen(Screen):
         )
         layout.add_widget(self.status_label)
         
-        # Режим
         self.mode_label = Label(
             text="🔄 Режим: TEST",
             font_size=dp(16),
@@ -565,7 +618,6 @@ class DashboardScreen(Screen):
         )
         layout.add_widget(self.mode_label)
         
-        # Кнопки управления
         btn_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(60), spacing=10)
         
         self.start_btn = Button(
@@ -597,7 +649,6 @@ class DashboardScreen(Screen):
         
         layout.add_widget(btn_layout)
         
-        # Активные позиции
         positions_label = Label(
             text="📋 Активные позиции:",
             font_size=dp(18),
@@ -609,7 +660,6 @@ class DashboardScreen(Screen):
         )
         layout.add_widget(positions_label)
         
-        # Список позиций
         scroll = ScrollView(size_hint=(1, 1))
         self.positions_layout = BoxLayout(
             orientation='vertical',
@@ -623,29 +673,32 @@ class DashboardScreen(Screen):
         self.add_widget(layout)
     
     def toggle_trading(self, instance):
-        self.bot.data["search_active"] = not self.bot.data.get("search_active", True)
-        asyncio.create_task(self.bot.safe_save())
+        async def do_toggle():
+            self.bot.data["search_active"] = not self.bot.data.get("search_active", True)
+            await self.bot.safe_save()
+        self.bot.run_async_threadsafe(do_toggle())
     
     def switch_mode(self, instance):
-        self.bot.mode = "REAL" if self.bot.mode == "TEST" else "TEST"
-        CONFIG["MODE"] = self.bot.mode
-        asyncio.create_task(self.bot.safe_save())
+        async def do_switch():
+            self.bot.mode = "REAL" if self.bot.mode == "TEST" else "TEST"
+            CONFIG["MODE"] = self.bot.mode
+            await self.bot.safe_save()
+        self.bot.run_async_threadsafe(do_switch())
     
     def emergency_stop(self, instance):
-        active_pos = self.bot.data["pos"] if self.bot.mode == "REAL" else self.bot.data["test_pos"]
-        if not active_pos:
-            return
-        
         async def do_kill():
+            with self.bot._data_lock:
+                active_pos = dict(self.bot.data["pos"] if self.bot.mode == "REAL" else self.bot.data["test_pos"])
+            if not active_pos:
+                return
             for ticker in list(active_pos.keys()):
                 price = self.bot.price_history[ticker][-1] if self.bot.price_history[ticker] else 100.0
                 await self.bot.exit_trade(ticker, price, "MANUAL KILL", 0)
-        
-        asyncio.create_task(do_kill())
+        self.bot.run_async_threadsafe(do_kill())
     
-    def update_data(self):
-        total = self.bot.data.get("total_pnl", 0)
-        daily = self.bot.data.get("daily_pnl", 0)
+    def update_data(self, data_snapshot):
+        total = data_snapshot.get("total_pnl", 0)
+        daily = data_snapshot.get("daily_pnl", 0)
         
         color = (0.2, 0.9, 0.2, 1) if total >= 0 else (0.9, 0.2, 0.2, 1)
         self.pnl_label.text = f"💰 Общий PnL: {total:.2f}₽"
@@ -655,14 +708,13 @@ class DashboardScreen(Screen):
         self.daily_pnl_label.text = f"📊 Сегодня: {daily:.2f}₽"
         self.daily_pnl_label.color = color
         
-        status = "▶️ АКТИВЕН" if self.bot.data.get("search_active") else "⏸️ ПАУЗА"
+        status = "▶️ АКТИВЕН" if data_snapshot.get("search_active") else "⏸️ ПАУЗА"
         self.status_label.text = f"⏳ Статус: {status}"
         
-        self.mode_label.text = f"🔄 Режим: {self.bot.mode}"
+        self.mode_label.text = f"🔄 Режим: {data_snapshot.get('mode', 'TEST')}"
         
-        # Обновляем позиции
         self.positions_layout.clear_widgets()
-        active_pos = self.bot.data["pos"] if self.bot.mode == "REAL" else self.bot.data["test_pos"]
+        active_pos = data_snapshot.get("pos", {}) if data_snapshot.get("mode") == "REAL" else data_snapshot.get("test_pos", {})
         
         if not active_pos:
             label = Label(
@@ -675,26 +727,22 @@ class DashboardScreen(Screen):
         else:
             for ticker, pos in active_pos.items():
                 side_icon = "🟢" if pos['side'] == 'BUY' else "🔴"
-                pnl = pos.get('pnl', 0)
-                color = (0.2, 0.9, 0.2, 1) if pnl >= 0 else (0.9, 0.2, 0.2, 1)
-                
                 pos_label = Label(
                     text=f"{side_icon} {ticker} | {pos['side']} {pos['lot']} лотов\n"
-                         f"Вход: {pos['p']:.2f}₽ | PnL: {pnl:.2f}₽",
+                         f"Вход: {pos['p']:.2f}₽",
                     size_hint_y=None,
                     height=dp(60),
-                    color=color
+                    color=(1, 1, 1, 1)
                 )
                 self.positions_layout.add_widget(pos_label)
 
 
 # ============================================================================
-# НОВЫЙ UI: HISTORY
+# UI: HISTORY
 # ============================================================================
 class HistoryScreen(Screen):
-    def __init__(self, bot: TitanAbsoluteMonolith, **kwargs):
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.bot = bot
         
         layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
         
@@ -708,7 +756,6 @@ class HistoryScreen(Screen):
         )
         layout.add_widget(title)
         
-        # Статистика
         self.stats_label = Label(
             text="Всего сделок: 0\nВинрейт: 0%\nСредний профит: 0₽",
             font_size=dp(16),
@@ -718,7 +765,6 @@ class HistoryScreen(Screen):
         )
         layout.add_widget(self.stats_label)
         
-        # Список сделок
         scroll = ScrollView(size_hint=(1, 1))
         self.history_layout = BoxLayout(
             orientation='vertical',
@@ -731,8 +777,8 @@ class HistoryScreen(Screen):
         
         self.add_widget(layout)
     
-    def update_data(self):
-        trades = self.bot.data.get("trade_history", [])
+    def update_data(self, data_snapshot):
+        trades = data_snapshot.get("trade_history", [])
         
         if not trades:
             self.stats_label.text = "Всего сделок: 0\nВинрейт: 0%\nСредний профит: 0₽"
@@ -770,12 +816,11 @@ class HistoryScreen(Screen):
 
 
 # ============================================================================
-# НОВЫЙ UI: SETTINGS
+# UI: SETTINGS
 # ============================================================================
 class SettingsScreen(Screen):
-    def __init__(self, bot: TitanAbsoluteMonolith, **kwargs):
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.bot = bot
         
         layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
         
@@ -807,15 +852,18 @@ class SettingsScreen(Screen):
             layout.add_widget(box)
         
         self.add_widget(layout)
+    
+    def update_data(self, data_snapshot):
+        pass  # Настройки статичны
 
 
 # ============================================================================
-# НОВЫЙ UI: MARKET
+# UI: MARKET
 # ============================================================================
 class MarketScreen(Screen):
-    def __init__(self, bot: TitanAbsoluteMonolith, **kwargs):
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.bot = bot
+        # self.bot больше не нужен, всё из snapshot
         
         layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
         
@@ -841,15 +889,14 @@ class MarketScreen(Screen):
         
         self.add_widget(layout)
     
-    def update_data(self):
+    def update_data(self, data_snapshot):
         self.assets_layout.clear_widgets()
+        market = data_snapshot.get("market", {})
         
         for ticker in BASE_ASSETS:
-            iq_list = self.bot.iq_history.get(ticker, [])
-            iq = iq_list[-1] if iq_list else 0
-            
-            price_list = self.bot.price_history.get(ticker, [])
-            price = price_list[-1] if price_list else 0
+            info = market.get(ticker, {"iq": 0, "price": 0})
+            iq = info["iq"]
+            price = info["price"]
             
             if iq >= 7:
                 iq_color = (0.2, 0.9, 0.2, 1)
@@ -875,40 +922,47 @@ class TITANProApp(App):
         super().__init__(**kwargs)
         self.title = "🚀 TITAN Pro"
         self.bot = TitanAbsoluteMonolith()
-        self._tasks = []
+        self._loop_thread = None
     
     def build(self):
         sm = ScreenManager()
         
-        sm.add_widget(DashboardScreen(self.bot, name='dashboard'))
-        sm.add_widget(HistoryScreen(self.bot, name='history'))
-        sm.add_widget(SettingsScreen(self.bot, name='settings'))
-        sm.add_widget(MarketScreen(self.bot, name='market'))
+        dashboard = DashboardScreen(name='dashboard')
+        dashboard.bot = self.bot
+        sm.add_widget(dashboard)
+        
+        sm.add_widget(HistoryScreen(name='history'))
+        sm.add_widget(SettingsScreen(name='settings'))
+        sm.add_widget(MarketScreen(name='market'))  # больше не передаём bot
         
         Clock.schedule_once(self.start_bot, 0.5)
         Clock.schedule_interval(self.update_ui, 1.0)
         
         return sm
     
-    async def start_bot_async(self):
+    async def async_main(self):
+        """Точка входа в asyncio — запускается в отдельном потоке"""
+        self.bot._loop = asyncio.get_running_loop()
         await self.bot.start()
-        ws_task = asyncio.create_task(ws_market_data_feed(self.bot))
-        self._tasks.append(ws_task)
+        await ws_market_data_feed(self.bot)
     
     def start_bot(self, dt):
-        asyncio.create_task(self.start_bot_async())
+        def run_loop():
+            asyncio.run(self.async_main())
+        self._loop_thread = threading.Thread(target=run_loop, daemon=True)
+        self._loop_thread.start()
     
     def update_ui(self, dt):
+        data_snapshot = self.bot.get_safe_data()
         sm = self.root
-        sm.get_screen('dashboard').update_data()
-        sm.get_screen('history').update_data()
-        sm.get_screen('market').update_data()
+        sm.get_screen('dashboard').update_data(data_snapshot)
+        sm.get_screen('history').update_data(data_snapshot)
+        sm.get_screen('settings').update_data(data_snapshot)
+        sm.get_screen('market').update_data(data_snapshot)
     
     def on_stop(self):
         if self.bot:
-            asyncio.create_task(self.bot.stop())
-        for task in self._tasks:
-            task.cancel()
+            self.bot.run_async_threadsafe(self.bot.stop())
 
 
 if __name__ == '__main__':
