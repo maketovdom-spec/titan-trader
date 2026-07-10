@@ -1,3 +1,7 @@
+      with:
+        name: titan-trader-apk
+        path: ${{ steps.find_apk.outputs.apk_path }}
+        retention-days: 30
 name: Build TITAN APK
 
 on:
