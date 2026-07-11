@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - 'v*' # Авто-релиз сработает при создании тега v1.0.0, v2.0 и т.д.
+      - 'v*'
 
 jobs:
   build-apk:
@@ -32,31 +32,12 @@ jobs:
         sudo rm -rf /usr/share/dotnet /opt/ghc
         df -h
 
-    - name: Install system dependencies
+    - name: Clear System NDK Environment
       run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          build-essential git ffmpeg wget \
-          libsdl2-dev libsdl2-image-dev \
-          libsdl2-mixer-dev libsdl2-ttf-dev \
-          libportmidi-dev libswscale-dev \
-          libavformat-dev libavcodec-dev \
-          zlib1g-dev libgstreamer1.0-0 \
-          gstreamer1.0-plugins-base \
-          gstreamer1.0-plugins-good \
-          autoconf libtool libtool-bin pkg-config \
-          unzip cmake libffi-dev \
-          python3-dev automake \
-          libssl-dev
-
-    - name: Export Android SDK & NDK Environment
-      run: |
-        echo "ANDROID_HOME=$HOME/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
-        echo "ANDROID_SDK_ROOT=$HOME/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
-        # ЖЕСТКОЕ ПЕРЕОПРЕДЕЛЕНИЕ: перебиваем системный NDK 27 на локальный NDK 25c
-        echo "ANDROID_NDK_ROOT=$HOME/.buildozer/android/platform/android-ndk-r25c" >> $GITHUB_ENV
-        echo "ANDROID_NDK_HOME=$HOME/.buildozer/android/platform/android-ndk-r25c" >> $GITHUB_ENV
-        echo "ANDROID_NDK=$HOME/.buildozer/android/platform/android-ndk-r25c" >> $GITHUB_ENV
+        # Полностью очищаем системные переменные NDK 27, чтобы Buildozer рулил всем сам с нуля
+        echo "ANDROID_NDK_ROOT=" >> $GITHUB_ENV
+        echo "ANDROID_NDK_HOME=" >> $GITHUB_ENV
+        echo "ANDROID_NDK=" >> $GITHUB_ENV
 
     - name: Install Python build tools
       run: |
@@ -93,7 +74,10 @@ jobs:
         source.main = titan_pro.py
         source.include_exts = py,png,jpg,kv,atlas,json
         version = 1.0.0
-        requirements = python3==3.11.1,kivy,aiohttp,pytz,async_timeout,openssl,certifi,pyjnius|https://github.com/kivy/pyjnius/archive/master.zip
+        
+        # ТВОЙ ИДЕАЛЬНЫЙ ФИКС: ветка 3.11 без лишних цифр
+        requirements = python3==3.11,kivy,aiohttp,pytz,async_timeout,openssl,certifi,pyjnius|https://github.com/kivy/pyjnius/archive/master.zip
+        
         android.permissions = INTERNET,ACCESS_NETWORK_STATE,WAKE_LOCK
         android.api = 33
         android.minapi = 21
