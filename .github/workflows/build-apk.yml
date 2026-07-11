@@ -86,8 +86,8 @@ jobs:
         source.main = titan_pro.py
         source.include_exts = py,png,jpg,kv,atlas,json
         version = 1.0.0
-        # КРИТИЧНО: pyjnius==1.6.1 переопределяет баг p4a с версией 1.7.0
-        requirements = python3,kivy,aiohttp,pytz,async_timeout,openssl-android,certifi,pyjnius==1.6.1
+        # ВАЖНО: Жестко фиксируем Python 3.11.9, чтобы p4a не тянул 3.14
+        requirements = python3==3.11.9,kivy,aiohttp,pytz,async_timeout,openssl-android,certifi,pyjnius==1.6.1
         android.permissions = INTERNET,ACCESS_NETWORK_STATE,WAKE_LOCK
         android.api = 33
         android.minapi = 21
