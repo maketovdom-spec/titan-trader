@@ -48,7 +48,6 @@ jobs:
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
-        # Жестко фиксируем setuptools, чтобы избежать ошибки PYX_FILES
         pip install buildozer "cython>=3.0.0,<3.1" "setuptools>=65.0.0,<70" wheel
 
     - name: Set root permission
@@ -80,6 +79,7 @@ jobs:
         android.api = 33
         android.minapi = 21
         android.ndk_api = 21
+        android.ndk = 21e
         android.accept_sdk_license = True
         orientation = portrait
         fullscreen = 0
