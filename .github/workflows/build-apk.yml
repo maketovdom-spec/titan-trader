@@ -79,7 +79,7 @@ jobs:
         android.api = 33
         android.minapi = 21
         android.ndk_api = 21
-        android.ndk = 25c
+        android.ndk = 22
         android.accept_sdk_license = True
         orientation = portrait
         fullscreen = 0
@@ -91,20 +91,21 @@ jobs:
         warn_on_root = 0
         EOF
 
-    - name: Cache Buildozer
-      uses: actions/cache@v4
-      with:
-        path: |
-          .buildozer
-          ~/.buildozer
-        key: buildozer-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
-        restore-keys: buildozer-${{ runner.os }}-
+    # ❌ Кэш убираем на время, чтобы не подтянуть старые ломаные файлы
+    # - name: Cache Buildozer
+    #   uses: actions/cache@v4
 
     - name: Set non-interactive mode
       run: |
         echo "DEBIAN_FRONTEND=noninteractive" >> $GITHUB_ENV
         echo "CI=true" >> $GITHUB_ENV
         echo "BUILD_IN_CI=true" >> $GITHUB_ENV
+
+    - name: Clean buildozer cache before build
+      run: |
+        rm -rf .buildozer
+        rm -rf ~/.buildozer
+        echo "✅ Кэш Buildozer принудительно очищен"
 
     - name: Build APK
       run: buildozer android debug
