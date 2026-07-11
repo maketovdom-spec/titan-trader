@@ -22,7 +22,8 @@ jobs:
     - name: Free disk space
       run: |
         sudo apt-get clean
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        # НЕ удаляем /usr/local/lib/android — там предустановленный SDK от GitHub
+        sudo rm -rf /usr/share/dotnet /opt/ghc
         df -h
 
     - name: Install system dependencies
@@ -42,12 +43,16 @@ jobs:
           unzip cmake libffi-dev \
           python3-dev automake
 
-    - name: Set JAVA_HOME
-      run: echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> $GITHUB_ENV
+    - name: Export Android SDK Environment
+      run: |
+        echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> $GITHUB_ENV
+        echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> $GITHUB_ENV
+        echo "ANDROID_SDK_ROOT=/usr/local/lib/android/sdk" >> $GITHUB_ENV
 
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
+        # Ограничения на cython и setuptools — КРИТИЧНЫ для стабильности
         pip install buildozer "cython>=3.0.0,<3.1" "setuptools>=65.0.0,<70" wheel
 
     - name: Set root permission
@@ -90,10 +95,6 @@ jobs:
         log_level = 2
         warn_on_root = 0
         EOF
-
-    # Отключаем кэш, чтобы точно не было никаких конфликтов
-    # - name: Cache Buildozer
-    #   uses: actions/cache@v4
 
     - name: Set non-interactive mode
       run: |
