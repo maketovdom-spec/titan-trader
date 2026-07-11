@@ -2,6 +2,9 @@ name: Build TITAN Pro APK
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
 
 jobs:
   build-apk:
@@ -86,13 +89,14 @@ jobs:
         source.main = titan_pro.py
         source.include_exts = py,png,jpg,kv,atlas,json
         version = 1.0.0
-        requirements = python3,kivy,aiohttp,pytz,async_timeout,openssl,certifi,pyjnius|https://github.com/kivy/pyjnius/archive/master.zip
+        requirements = python3==3.11.1,kivy,aiohttp,pytz,async_timeout,openssl,certifi,pyjnius|https://github.com/kivy/pyjnius/archive/master.zip
         android.permissions = INTERNET,ACCESS_NETWORK_STATE,WAKE_LOCK
         android.api = 33
         android.minapi = 21
         android.ndk_api = 21
         android.ndk = 25c
         android.accept_sdk_license = True
+        android.archs = armeabi-v7a, arm64-v8a
         orientation = portrait
         fullscreen = 0
         log_level = 2
@@ -126,9 +130,18 @@ jobs:
           exit 1
         fi
 
-    - name: Upload APK
+    - name: Upload APK as Artifact
       uses: actions/upload-artifact@v4
       with:
         name: titan-pro-apk
         path: ${{ steps.find_apk.outputs.apk_path }}
         retention-days: 30
+
+    - name: Create GitHub Release
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@v2
+      with:
+        files: ${{ steps.find_apk.outputs.apk_path }}
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
