@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - 'v*'
+      - 'v*' # Авто-релиз сработает при создании тега v1.0.0, v2.0 и т.д.
 
 jobs:
   build-apk:
@@ -49,10 +49,14 @@ jobs:
           python3-dev automake \
           libssl-dev
 
-    - name: Export Android SDK Environment
+    - name: Export Android SDK & NDK Environment
       run: |
         echo "ANDROID_HOME=$HOME/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
         echo "ANDROID_SDK_ROOT=$HOME/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
+        # ЖЕСТКОЕ ПЕРЕОПРЕДЕЛЕНИЕ: перебиваем системный NDK 27 на локальный NDK 25c
+        echo "ANDROID_NDK_ROOT=$HOME/.buildozer/android/platform/android-ndk-r25c" >> $GITHUB_ENV
+        echo "ANDROID_NDK_HOME=$HOME/.buildozer/android/platform/android-ndk-r25c" >> $GITHUB_ENV
+        echo "ANDROID_NDK=$HOME/.buildozer/android/platform/android-ndk-r25c" >> $GITHUB_ENV
 
     - name: Install Python build tools
       run: |
