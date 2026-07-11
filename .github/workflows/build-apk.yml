@@ -85,6 +85,7 @@ jobs:
         source.main = titan_pro.py
         source.include_exts = py,png,jpg,kv,atlas,json
         version = 1.0.0
+        # ЗАПОМНИ: hostpython УДАЛЕН! Он ломал aiohttp
         requirements = python3,kivy,aiohttp,pytz,async_timeout,openssl-android,certifi,pyjnius
         android.permissions = INTERNET,ACCESS_NETWORK_STATE,WAKE_LOCK
         android.api = 33
