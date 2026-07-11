@@ -48,8 +48,6 @@ jobs:
 
     - name: Export Android SDK Environment
       run: |
-        # ИСПРАВЛЕНИЕ: Указываем путь к глобальному $HOME/.buildozer,
-        # чтобы удаление локальной папки .buildozer не убило SDK.
         echo "ANDROID_HOME=$HOME/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
         echo "ANDROID_SDK_ROOT=$HOME/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
 
@@ -115,7 +113,7 @@ jobs:
     - name: Clean local project build cache
       run: |
         rm -rf .buildozer
-        echo "✅ Локальный кэш проекта очищен (SDK остался в $HOME/.buildozer)"
+        echo "✅ Локальный кэш проекта очищен"
 
     - name: Build APK
       run: buildozer -v android debug
