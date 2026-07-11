@@ -79,7 +79,7 @@ jobs:
         android.api = 33
         android.minapi = 21
         android.ndk_api = 21
-        android.ndk = 22
+        android.ndk = 25c
         android.accept_sdk_license = True
         orientation = portrait
         fullscreen = 0
@@ -91,7 +91,7 @@ jobs:
         warn_on_root = 0
         EOF
 
-    # ❌ Кэш убираем на время, чтобы не подтянуть старые ломаные файлы
+    # Кэш отключён — не подтянет старые битые файлы
     # - name: Cache Buildozer
     #   uses: actions/cache@v4
 
