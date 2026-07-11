@@ -99,8 +99,14 @@ jobs:
         key: buildozer-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
         restore-keys: buildozer-${{ runner.os }}-
 
-    - name: Build APK (non-interactive)
-      run: yes | buildozer android debug
+    - name: Set non-interactive mode
+      run: |
+        echo "DEBIAN_FRONTEND=noninteractive" >> $GITHUB_ENV
+        echo "CI=true" >> $GITHUB_ENV
+        echo "BUILD_IN_CI=true" >> $GITHUB_ENV
+
+    - name: Build APK
+      run: buildozer android debug
 
     - name: Find APK
       id: find_apk
