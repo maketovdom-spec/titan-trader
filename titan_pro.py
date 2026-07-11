@@ -26,7 +26,7 @@ from kivy.clock import Clock
 from kivy.metrics import dp
 
 # ============================================================================
-# КОНФИГУРАЦИЯ
+# КОНФИГУРАЦИЯ И СИСТЕМА ПРОФИЛЕЙ (Без pyjnius)
 # ============================================================================
 logging.basicConfig(
     level=logging.INFO,
@@ -41,22 +41,54 @@ CONFIG = {
     "MODE": os.getenv("TITAN_MODE", "TEST"),
 }
 
+# --- ВАЖНО: Путь к файлам для Android ---
+if 'ANDROID_PRIVATE' in os.environ:
+    DATA_DIR = os.environ['ANDROID_PRIVATE']
+else:
+    DATA_DIR = '.'
+STATE_FILE = os.path.join(DATA_DIR, "titan_monolith.json")
+STATE_TMP_FILE = os.path.join(DATA_DIR, "titan_monolith.tmp.json")
+
+
+# --- Система профилей (для рандомизации стратегии между клиентами) ---
+import hashlib
+import random
+
+class ClientProfile:
+    """Уникальный профиль клиента - основа для лицензирования без jnius"""
+    def __init__(self, profile_id: str = "DEFAULT"):
+        self.profile_id = profile_id
+        self.seed = int(hashlib.md5(profile_id.encode()).hexdigest()[:8], 16)
+        self.iq_mult = 0.85 + (self.seed % 30) / 100.0
+        self.trail_mult = 0.80 + ((self.seed >> 4) % 40) / 100.0
+        self.size_mult = 0.70 + ((self.seed >> 8) % 60) / 100.0
+        
+        all_assets = ["SBER", "GAZP", "Si", "CNY", "GOLD", "VTBR", "MGNT", "LKOH"]
+        self.assets = self._select_assets(all_assets)
+        logger.info(f"📋 Профиль загружен: {profile_id} | IQ×{self.iq_mult:.2f} | Активы: {self.assets}")
+    
+    def _select_assets(self, assets):
+        rng = random.Random(self.seed)
+        return rng.sample(assets, 5)
+
+# Инициализация профиля
+PROFILE = ClientProfile("CLIENT_DEFAULT")
+
+
+# --- Базовые параметры стратегии (заменены на множители профиля) ---
 DAILY_LIMIT_PCT = 3.5
 MARGIN_FACTOR = 0.15
 WALL_MULTIPLIER = 5.5
 MAX_SPREAD_LIMIT = 0.0006
-IQ_STOCKS_THRESHOLD = 7.0
+IQ_STOCKS_THRESHOLD = 7.0 * PROFILE.iq_mult
 IQ_FUTURES_THRESHOLD = 3.0
 VOL_BREATH_THRESHOLD = 0.4
-DIANA_TIGHT_TRAIL = 0.0015
-MAX_POSITION_LOTS = 1000
+DIANA_TIGHT_TRAIL = 0.0015 * PROFILE.trail_mult
+MAX_POSITION_LOTS = int(1000 * PROFILE.size_mult)
 
 PORTFOLIOS = {"FUT": "7502Y5H", "STK": "D101327", "FX": "G68390"}
-BASE_ASSETS = ["SBER", "GAZP", "Si", "CNY", "GOLD", "VTBR", "MGNT", "LKOH"]
+BASE_ASSETS = PROFILE.assets
 moscow_tz = pytz.timezone('Europe/Moscow')
-
-STATE_FILE = "titan_monolith.json"
-STATE_TMP_FILE = "titan_monolith.tmp.json"
 
 Window.clearcolor = (0.1, 0.1, 0.15, 1)
 
@@ -71,7 +103,7 @@ if not verify_auth(CONFIG):
 
 
 # ============================================================================
-# STATE MANAGEMENT
+# STATE MANAGEMENT (пути к файлам исправлены для Android)
 # ============================================================================
 def _default_state() -> dict:
     def_army = {t: {"pnl_today": 0.0, "state": "SHADOW", "nominal_iq": 4.5} for t in BASE_ASSETS}
@@ -129,7 +161,7 @@ class TitanAbsoluteMonolith:
         self.mode = CONFIG.get("MODE", "TEST")
         self.tz = moscow_tz
         self.data = load_state()
-        self._data_lock = threading.RLock()  # реентерабельная блокировка
+        self._data_lock = threading.RLock()
 
         self.price_history: Dict[str, list] = {t: [] for t in BASE_ASSETS}
         self.iq_history: Dict[str, list] = {t: [] for t in BASE_ASSETS}
@@ -144,19 +176,16 @@ class TitanAbsoluteMonolith:
         self.jwt_expiry: float = 0
         self._jwt_lock = asyncio.Lock()
         self._http: Optional[aiohttp.ClientSession] = None
-        self._loop = None  # event loop фонового потока
+        self._loop = None
 
     def run_async_threadsafe(self, coro):
-        """Вызвать из UI для передачи корутины в asyncio loop"""
         if self._loop and self._loop.is_running():
             asyncio.run_coroutine_threadsafe(coro, self._loop)
         else:
             logger.error("Async loop not running")
 
     def get_safe_data(self):
-        """Безопасное чтение данных для UI (с копиями изменяемых структур)"""
         with self._data_lock:
-            # копируем рыночные данные для экрана Market
             market_data = {}
             for ticker in BASE_ASSETS:
                 iq_hist = self.iq_history.get(ticker, [])
@@ -427,9 +456,7 @@ class TitanAbsoluteMonolith:
                 if exit_condition:
                     need_exit = True
                     exit_price = price
-                    # не вызываем exit_trade здесь, выйдем из блока with и вызовем снаружи
 
-                # Trailing stop (обновление без выхода)
                 if not need_exit and prof > 0.003:
                     tr = (
                         p["p"] + (p["p"] * DIANA_TIGHT_TRAIL)
@@ -854,7 +881,7 @@ class SettingsScreen(Screen):
         self.add_widget(layout)
     
     def update_data(self, data_snapshot):
-        pass  # Настройки статичны
+        pass
 
 
 # ============================================================================
@@ -863,7 +890,6 @@ class SettingsScreen(Screen):
 class MarketScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # self.bot больше не нужен, всё из snapshot
         
         layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
         
@@ -933,7 +959,7 @@ class TITANProApp(App):
         
         sm.add_widget(HistoryScreen(name='history'))
         sm.add_widget(SettingsScreen(name='settings'))
-        sm.add_widget(MarketScreen(name='market'))  # больше не передаём bot
+        sm.add_widget(MarketScreen(name='market'))
         
         Clock.schedule_once(self.start_bot, 0.5)
         Clock.schedule_interval(self.update_ui, 1.0)
@@ -941,7 +967,6 @@ class TITANProApp(App):
         return sm
     
     async def async_main(self):
-        """Точка входа в asyncio — запускается в отдельном потоке"""
         self.bot._loop = asyncio.get_running_loop()
         await self.bot.start()
         await ws_market_data_feed(self.bot)
