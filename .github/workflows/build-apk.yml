@@ -79,7 +79,7 @@ jobs:
         android.api = 33
         android.minapi = 21
         android.ndk_api = 21
-        android.ndk = 21e
+        android.ndk = 25c
         android.accept_sdk_license = True
         orientation = portrait
         fullscreen = 0
