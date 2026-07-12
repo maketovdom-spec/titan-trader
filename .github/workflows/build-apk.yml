@@ -92,8 +92,8 @@ jobs:
         source.main = titan_pro.py
         source.include_exts = py,png,jpg,kv,atlas,json
         version = 1.0.0
-        # ✅ ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ ОТ КОЛЛЕГИ: master.zip → main.zip
-        requirements = python3,kivy,aiohttp==3.9.0,pytz,async_timeout,openssl,certifi,pyjnius|https://github.com/kivy/pyjnius/archive/main.zip
+        # ✅ ФИНАЛЬНЫЕ ИСПРАВЛЕНИЯ: aiohttp==3.9.0 для Python 3.14, pyjnius без URL (работает через рецепт p4a)
+        requirements = python3,kivy,aiohttp==3.9.0,pytz,async_timeout,openssl,certifi,pyjnius
         android.permissions = INTERNET,ACCESS_NETWORK_STATE,WAKE_LOCK
         android.api = 33
         android.minapi = 21
