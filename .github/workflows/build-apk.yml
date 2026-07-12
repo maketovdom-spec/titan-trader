@@ -76,10 +76,16 @@ jobs:
 
     - name: Verify main script exists
       run: |
-        if [ ! -f "titan_pro.py" ]; then
-          echo "❌ titan_pro.py not found!"
+        # Проверяем, что файл переименован в main.py
+        if [ ! -f "main.py" ]; then
+          echo "❌ main.py not found! Please rename titan_pro.py to main.py in your repo."
           exit 1
         fi
+
+    - name: Create debug keystore
+      run: |
+        mkdir -p ~/.android
+        keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US"
 
     - name: Create buildozer.spec
       run: |
@@ -89,7 +95,8 @@ jobs:
         package.name = titanpro
         package.domain = org.titan
         source.dir = .
-        source.main = titan_pro.py
+        # ✅ ИЗМЕНЕНО: теперь указываем main.py
+        source.main = main.py
         source.include_exts = py,png,jpg,kv,atlas,json
         version = 1.0.0
         requirements = python3,kivy,aiohttp==3.9.0,pytz,async_timeout,openssl,certifi,pyjnius
@@ -105,10 +112,10 @@ jobs:
         fullscreen = 0
         log_level = 2
         warn_on_root = 0
-        # ✨ ДОБАВЛЕНО: память для Gradle от коллеги
         android.gradle_options = -Xmx2048m -XX:MaxPermSize=512m
 
         [buildozer]
+        # ✅ ВОЗВРАЩАЕМ на 1, чтобы лог не обрезался
         log_level = 1
         warn_on_root = 0
         EOF
