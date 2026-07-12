@@ -47,12 +47,10 @@ jobs:
           autoconf libtool libtool-bin pkg-config \
           unzip cmake libffi-dev \
           python3-dev automake \
-          libssl-dev
+          libssl-dev lld
 
-    - name: Export Android SDK & NDK Environment
+    - name: Clear Android NDK Environment
       run: |
-        echo "ANDROID_HOME=$HOME/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
-        echo "ANDROID_SDK_ROOT=$HOME/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
         echo "ANDROID_NDK_ROOT=" >> $GITHUB_ENV
         echo "ANDROID_NDK_HOME=" >> $GITHUB_ENV
         echo "ANDROID_NDK=" >> $GITHUB_ENV
@@ -60,8 +58,8 @@ jobs:
     - name: Install Python build tools
       run: |
         python -m pip install --upgrade pip
-        pip install --upgrade buildozer python-for-android
-        pip install "cython>=3.0.0,<3.1.0" "setuptools>=65.0.0,<70.0.0" wheel
+        pip install --upgrade "buildozer>=1.5.0" "python-for-android>=2024.01.21"
+        pip install "cython>=3.0.8,<3.1.0" "setuptools>=65.0.0,<69.0.0" wheel
 
     - name: Set root permission & accept licenses
       run: |
@@ -93,7 +91,8 @@ jobs:
         source.include_exts = py,png,jpg,kv,atlas,json
         version = 1.0.0
 
-        requirements = hostpython3==3.11,python3,kivy,aiohttp,pytz,async_timeout,openssl,certifi,pyjnius|https://github.com/kivy/pyjnius/archive/master.zip
+        # ИСПОЛЬЗУЕМ GIT-ВЕРСИЮ pyjnius (фикс для Cython 3)
+        requirements = python3==3.11,kivy,aiohttp,pytz,async_timeout,openssl,certifi,pyjnius|https://github.com/kivy/pyjnius/archive/master.zip
 
         android.permissions = INTERNET,ACCESS_NETWORK_STATE,WAKE_LOCK
         android.api = 33
@@ -121,7 +120,7 @@ jobs:
           ${{ runner.os }}-buildozer-
 
     - name: Build APK
-      run: buildozer -v android debug --set p4a.branch release-2024.01.21
+      run: buildozer -v android debug
 
     - name: Find APK
       id: find_apk
