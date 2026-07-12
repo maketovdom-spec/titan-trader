@@ -49,8 +49,10 @@ jobs:
           python3-dev automake \
           libssl-dev lld
 
-    - name: Clear Android NDK Environment
+    - name: Export Android SDK & NDK Environment
       run: |
+        echo "ANDROID_HOME=$HOME/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
+        echo "ANDROID_SDK_ROOT=$HOME/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
         echo "ANDROID_NDK_ROOT=" >> $GITHUB_ENV
         echo "ANDROID_NDK_HOME=" >> $GITHUB_ENV
         echo "ANDROID_NDK=" >> $GITHUB_ENV
@@ -91,8 +93,8 @@ jobs:
         source.include_exts = py,png,jpg,kv,atlas,json
         version = 1.0.0
 
-        # ИСПОЛЬЗУЕМ GIT-ВЕРСИЮ pyjnius (фикс для Cython 3)
-        requirements = python3==3.11,kivy,aiohttp,pytz,async_timeout,openssl,certifi,pyjnius|https://github.com/kivy/pyjnius/archive/master.zip
+        # Полностью доверяем p4a выбор версий Python
+        requirements = python3,kivy,aiohttp,pytz,async_timeout,openssl,certifi,pyjnius|https://github.com/kivy/pyjnius/archive/master.zip
 
         android.permissions = INTERNET,ACCESS_NETWORK_STATE,WAKE_LOCK
         android.api = 33
