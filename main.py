@@ -225,6 +225,25 @@ class TitanAbsoluteMonolith:
         if self._http and not self._http.closed: await self._http.close()
         logger.info("TITAN остановлен")
 
+    def get_market_session_status(self) -> str:
+        """Определяет статус торговой сессии MOEX"""
+        now_msk = dt.now(self.tz)
+        hour, minute = now_msk.hour, now_msk.minute
+        
+        # Ночь (после 19:00 до 10:00)
+        if hour >= 19 or hour < 10:
+            return "НОЧЬ"
+        # Утренний клиринг (10:00-10:05)
+        if hour == 10 and minute < 5:
+            return "КЛИРИНГ"
+        # Дневной клиринг (14:00-14:05)
+        if hour == 14 and minute < 5:
+            return "КЛИРИНГ"
+        # Вечерний клиринг (18:45-19:00)
+        if hour == 18 and minute >= 45:
+            return "КЛИРИНГ"
+        return "ТОРГИ"
+
     async def http_polling_loop(self):
         logger.info("🔄 Запущен HTTP polling fallback")
         while True:
@@ -376,13 +395,11 @@ class TitanAbsoluteMonolith:
                 self.data["total_pnl"] += net; self.data["daily_pnl"] += net
             else:
                 self.data.setdefault("test_pnl", 0.0); self.data["test_pnl"] += net
-            
-            # === ВАЖНО: МЕТКА РЕЖИМА В ИСТОРИИ ===
             trade_record = {
                 "ticker": ticker, "side": p["side"], "entry_price": p["p"],
                 "exit_price": price, "lot": p["lot"], "pnl": net,
                 "reason": reason, "time": dt.now(self.tz).strftime("%Y-%m-%d %H:%M:%S"),
-                "mode": self.mode 
+                "mode": self.mode
             }
             self.data["trade_history"].append(trade_record)
             if len(self.data["trade_history"]) > 50: self.data["trade_history"] = self.data["trade_history"][-50:]
@@ -410,6 +427,19 @@ class TitanAbsoluteMonolith:
             book = {'bids': [{'price': price * 0.9999, 'volume': 1000}], 'asks': [{'price': price * 1.0001, 'volume': 1000}]}
         now = time.time()
         self.tick_buffers[ticker].push(price, now)
+        
+        # === ОБНОВЛЕНИЕ ИСТОРИИ ЦЕН ДЛЯ UI ===
+        self.price_history[ticker].append(price)
+        if len(self.price_history[ticker]) > 600:
+            self.price_history[ticker].pop(0)
+        # =====================================
+        
+        # === ПРОВЕРКА СЕССИИ ===
+        session = self.get_market_session_status()
+        if session in ["НОЧЬ", "КЛИРИНГ"]:
+            return  # Не торгуем в нерабочее время
+        # =======================
+        
         bids, asks = book.get('bids', []), book.get('asks', [])
         snap = self.analyze_book(ticker, bids, asks, now)
         
@@ -596,14 +626,12 @@ class DashboardScreen(Screen):
         title = Label(text="TITAN Pro", font_size=dp(28), bold=True, size_hint_y=None, height=dp(50), color=(1, 1, 1, 1))
         layout.add_widget(title)
 
-        # REAL PnL
         real_box = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(35))
         self.real_pnl_label = Label(text="REAL: 0.00р", font_size=dp(17), bold=True, color=(0.3, 0.3, 0.3, 1))
         self.real_daily_label = Label(text="Сегодня: 0.00р", font_size=dp(14), color=(0.3, 0.3, 0.3, 1))
         real_box.add_widget(self.real_pnl_label); real_box.add_widget(self.real_daily_label)
         layout.add_widget(real_box)
 
-        # TEST PnL
         test_box = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(35))
         self.test_pnl_label = Label(text="TEST: 0.00р", font_size=dp(17), bold=True, color=(0.3, 0.3, 0.3, 1))
         self.test_daily_label = Label(text="Сегодня: 0.00р", font_size=dp(14), color=(0.3, 0.3, 0.3, 1))
@@ -687,9 +715,21 @@ class DashboardScreen(Screen):
             self.real_pnl_label.text = f"  REAL  {real_total:.2f}р"; self.real_pnl_label.color = (0.4, 0.4, 0.4, 1)
             self.real_daily_label.text = ""; self.real_daily_label.color = (0.4, 0.4, 0.4, 1)
 
-        status = "АКТИВЕН" if data_snapshot.get("search_active") else "ПАУЗА"
-        self.status_label.text = f"Статус: {status} | Режим: {current_mode}"
-        self.status_label.color = (0.2, 0.9, 0.2, 1) if data_snapshot.get("search_active") else (1, 1, 1, 1)
+        # === СТАТУС СЕССИИ (НОЧЬ/КЛИРИНГ) ===
+        if self.bot:
+            session_status = self.bot.get_market_session_status()
+            base_status = "АКТИВЕН" if data_snapshot.get("search_active") else "ПАУЗА"
+            if session_status in ["КЛИРИНГ", "НОЧЬ"]:
+                status = f"{base_status} | {session_status}"
+                if session_status == "НОЧЬ":
+                    self.status_label.color = (0.5, 0.5, 0.5, 1)
+                else:
+                    self.status_label.color = (0.9, 0.9, 0.2, 1)
+            else:
+                status = base_status
+                self.status_label.color = (0.2, 0.9, 0.2, 1) if data_snapshot.get("search_active") else (1, 1, 1, 1)
+            self.status_label.text = f"Статус: {status} | Режим: {current_mode}"
+        # =====================================
 
         self.pulse_layout.clear_widgets()
         market = data_snapshot.get("market", {})
@@ -864,9 +904,11 @@ class TITANProApp(App):
     async def async_main(self):
         self.bot._loop = asyncio.get_running_loop()
         await self.bot.start()
-        tasks = [ws_market_data_feed(self.bot), self.bot.http_polling_loop()]
-        if self.bot.mode == "TEST": tasks.append(self.bot.synthetic_tick_generator())
-        await asyncio.gather(*tasks)
+        await asyncio.gather(
+            ws_market_data_feed(self.bot),
+            self.bot.http_polling_loop(),
+            return_exceptions=True
+        )
 
     def start_bot(self, dt):
         def run_loop(): asyncio.run(self.async_main())
