@@ -7,7 +7,7 @@ import uuid
 import logging
 import ssl
 import threading
-from datetime import datetime as dt
+from datetime import datetime as dt, time as dtime
 from typing import Dict, Optional
 
 import aiohttp
@@ -26,7 +26,7 @@ from kivy.clock import Clock
 from kivy.metrics import dp
 
 # ============================================================================
-# КОНФИГУРАЦИЯ И СИСТЕМА ПРОФИЛЕЙ (Без pyjnius)
+# КОНФИГУРАЦИЯ И СИСТЕМА ПРОФИЛЕЙ
 # ============================================================================
 logging.basicConfig(
     level=logging.INFO,
@@ -41,7 +41,7 @@ CONFIG = {
     "MODE": os.getenv("TITAN_MODE", "TEST"),
 }
 
-# --- ВАЖНО: Путь к файлам для Android ---
+# --- Путь к файлам для Android ---
 if 'ANDROID_PRIVATE' in os.environ:
     DATA_DIR = os.environ['ANDROID_PRIVATE']
 else:
@@ -49,13 +49,11 @@ else:
 STATE_FILE = os.path.join(DATA_DIR, "titan_monolith.json")
 STATE_TMP_FILE = os.path.join(DATA_DIR, "titan_monolith.tmp.json")
 
-
-# --- Система профилей (для рандомизации стратегии между клиентами) ---
+# --- Система профилей ---
 import hashlib
 import random
 
 class ClientProfile:
-    """Уникальный профиль клиента - основа для лицензирования без jnius"""
     def __init__(self, profile_id: str = "DEFAULT"):
         self.profile_id = profile_id
         self.seed = int(hashlib.md5(profile_id.encode()).hexdigest()[:8], 16)
@@ -65,17 +63,15 @@ class ClientProfile:
         
         all_assets = ["SBER", "GAZP", "Si", "CNY", "GOLD", "VTBR", "MGNT", "LKOH"]
         self.assets = self._select_assets(all_assets)
-        logger.info(f"📋 Профиль загружен: {profile_id} | IQ×{self.iq_mult:.2f} | Активы: {self.assets}")
+        logger.info(f"Профиль загружен: {profile_id} | IQx{self.iq_mult:.2f} | Активы: {self.assets}")
     
     def _select_assets(self, assets):
         rng = random.Random(self.seed)
         return rng.sample(assets, 5)
 
-# Инициализация профиля
 PROFILE = ClientProfile("CLIENT_DEFAULT")
 
-
-# --- Базовые параметры стратегии (заменены на множители профиля) ---
+# --- Параметры стратегии ---
 DAILY_LIMIT_PCT = 3.5
 MARGIN_FACTOR = 0.15
 WALL_MULTIPLIER = 5.5
@@ -96,14 +92,13 @@ Window.clearcolor = (0.1, 0.1, 0.15, 1)
 def verify_auth(config: dict) -> bool:
     return config.get('SALT', '') == "NEVINNOMYSSK_TITAN_2026"
 
-
 if not verify_auth(CONFIG):
-    logger.critical("❌ ОШИБКА АВТОРИЗАЦИИ.")
+    logger.critical("ОШИБКА АВТОРИЗАЦИИ.")
     sys.exit(1)
 
 
 # ============================================================================
-# STATE MANAGEMENT (пути к файлам исправлены для Android)
+# STATE MANAGEMENT
 # ============================================================================
 def _default_state() -> dict:
     def_army = {t: {"pnl_today": 0.0, "state": "SHADOW", "nominal_iq": 4.5} for t in BASE_ASSETS}
@@ -119,7 +114,6 @@ def _default_state() -> dict:
         "trade_history": []
     }
 
-
 def load_state() -> dict:
     base = _default_state()
     if os.path.exists(STATE_FILE):
@@ -134,7 +128,6 @@ def load_state() -> dict:
             logger.error(f"State load error: {e}")
     return base
 
-
 def save_state_atomic(data: dict):
     try:
         with open(STATE_TMP_FILE, 'w', encoding='utf-8') as f:
@@ -145,7 +138,7 @@ def save_state_atomic(data: dict):
 
 
 # ============================================================================
-# TITAN MONOLITH CORE (потокобезопасная версия)
+# TITAN MONOLITH CORE
 # ============================================================================
 class TitanAbsoluteMonolith:
     ASSET_PARAMS = {
@@ -208,12 +201,12 @@ class TitanAbsoluteMonolith:
 
     async def start(self):
         self._http = aiohttp.ClientSession()
-        logger.info(f"🚀 TITAN запущен! Режим: {self.mode}")
+        logger.info(f"TITAN запущен! Режим: {self.mode}")
 
     async def stop(self):
         if self._http and not self._http.closed:
             await self._http.close()
-        logger.info("🛑 TITAN остановлен")
+        logger.info("TITAN остановлен")
 
     async def _ensure_jwt(self) -> bool:
         async with self._jwt_lock:
@@ -235,7 +228,7 @@ class TitanAbsoluteMonolith:
 
     async def send_order(self, ticker: str, side: str, qty: int, price: float, mkt: str) -> Optional[str]:
         if self.mode == "TEST":
-            logger.info(f"🧪 [TEST] {side} {ticker} {qty} @ {price}")
+            logger.info(f"[TEST] {side} {ticker} {qty} @ {price}")
             return str(uuid.uuid4())
 
         if not await self._ensure_jwt():
@@ -262,13 +255,13 @@ class TitanAbsoluteMonolith:
                                        timeout=aiohttp.ClientTimeout(total=5)) as r:
                 if r.status == 200:
                     body = await r.json()
-                    logger.info(f"✅ ОРДЕР: {side} {ticker} {qty} @ {fp}")
+                    logger.info(f"ОРДЕР: {side} {ticker} {qty} @ {fp}")
                     return body.get('orderNumber')
                 else:
                     text = await r.text()
-                    logger.error(f"❌ Order HTTP {r.status}: {text}")
+                    logger.error(f"Order HTTP {r.status}: {text}")
         except Exception as e:
-            logger.error(f"❌ Order error: {e}")
+            logger.error(f"Order error: {e}")
         return None
 
     @staticmethod
@@ -367,7 +360,7 @@ class TitanAbsoluteMonolith:
             del plist[ticker]
 
         await self.safe_save()
-        logger.info(f"🏁 ВЫХОД {ticker} ({reason}) | PnL: {net}₽")
+        logger.info(f"ВЫХОД {ticker} ({reason}) | PnL: {net}р")
 
     async def process_tick(self, ticker: str, price: float, book: dict):
         if self.mode == "TEST" and not book.get('bids'):
@@ -428,7 +421,7 @@ class TitanAbsoluteMonolith:
                     if cur_iq >= 3.0:
                         p["status"] = "FIRM"
                         p["entry_iq_real"] = cur_iq
-                        logger.info(f"💎 ПОДТВЕРЖДЕНО: {ticker}")
+                        logger.info(f"ПОДТВЕРЖДЕНО: {ticker}")
                     return
 
                 prof = ((price - p["p"]) / p["p"]) if p["side"] == "BUY" else ((p["p"] - price) / p["p"])
@@ -493,7 +486,7 @@ class TitanAbsoluteMonolith:
                     "comm_paid": 0.0, "entry_iq_real": cur_iq, "peak_iq": cur_iq, "max_prof": 0.0
                 }
                 active_pos[ticker] = pos
-                logger.info(f"🚀 ОТКРЫТА: {ticker} ({side}) {lot} лотов @ {price} | IQ: {cur_iq}")
+                logger.info(f"ОТКРЫТА: {ticker} ({side}) {lot} лотов @ {price} | IQ: {cur_iq}")
 
         if need_exit:
             await self.exit_trade(ticker, exit_price, exit_reason, exit_prof)
@@ -506,7 +499,6 @@ class TitanAbsoluteMonolith:
 # ============================================================================
 ALOR_WS_URL = "wss://api.alor.ru/ws"
 
-
 async def _get_access_token(http_session: aiohttp.ClientSession) -> Optional[str]:
     try:
         url = f"https://oauth.alor.ru/refresh?token={CONFIG['ALOR_TOKEN']}"
@@ -515,7 +507,7 @@ async def _get_access_token(http_session: aiohttp.ClientSession) -> Optional[str
                 body = await r.json()
                 token = body.get("AccessToken", "")
                 if token:
-                    logger.info("✅ AccessToken получен для WS")
+                    logger.info("AccessToken получен для WS")
                     return token
                 logger.error(f"OAuth ответ без AccessToken: {body}")
             else:
@@ -525,7 +517,6 @@ async def _get_access_token(http_session: aiohttp.ClientSession) -> Optional[str
         logger.error(f"OAuth error: {e}")
     return None
 
-
 async def ws_market_data_feed(bot: TitanAbsoluteMonolith):
     while True:
         access_token = None
@@ -534,11 +525,11 @@ async def ws_market_data_feed(bot: TitanAbsoluteMonolith):
                 access_token = await _get_access_token(session)
 
             if not access_token:
-                logger.warning("⚠️ Не удалось получить AccessToken. Повтор через 10с...")
+                logger.warning("Не удалось получить AccessToken. Повтор через 10с...")
                 await asyncio.sleep(10)
                 continue
 
-            logger.info(f"🔗 Подключение к Alor WebSocket: {ALOR_WS_URL}")
+            logger.info(f"Подключение к Alor WebSocket: {ALOR_WS_URL}")
 
             ssl_context = ssl.create_default_context()
             ssl_context.check_hostname = False
@@ -546,7 +537,7 @@ async def ws_market_data_feed(bot: TitanAbsoluteMonolith):
 
             async with aiohttp.ClientSession() as session:
                 async with session.ws_connect(ALOR_WS_URL, heartbeat=30, ssl=ssl_context) as ws:
-                    logger.info("✅ WS-соединение установлено")
+                    logger.info("WS-соединение установлено")
 
                     for ticker in BASE_ASSETS:
                         sub_msg = {
@@ -560,9 +551,9 @@ async def ws_market_data_feed(bot: TitanAbsoluteMonolith):
                             "token": access_token
                         }
                         await ws.send_json(sub_msg)
-                        logger.debug(f"📩 Подписка: {ticker}")
+                        logger.debug(f"Подписка: {ticker}")
 
-                    logger.info(f"✅ Подписано {len(BASE_ASSETS)} активов")
+                    logger.info(f"Подписано {len(BASE_ASSETS)} активов")
 
                     async for raw_msg in ws:
                         if raw_msg.type == aiohttp.WSMsgType.TEXT:
@@ -584,7 +575,7 @@ async def ws_market_data_feed(bot: TitanAbsoluteMonolith):
         except Exception as e:
             logger.error(f"WS critical error: {e}")
         
-        logger.warning("🔄 WS переподключение через 5с...")
+        logger.warning("WS переподключение через 5с...")
         await asyncio.sleep(5)
 
 
@@ -599,7 +590,7 @@ class DashboardScreen(Screen):
         layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
         
         title = Label(
-            text="🚀 TITAN Pro",
+            text="TITAN Pro",
             font_size=dp(28),
             bold=True,
             size_hint_y=None,
@@ -609,7 +600,7 @@ class DashboardScreen(Screen):
         layout.add_widget(title)
         
         self.pnl_label = Label(
-            text="💰 Общий PnL: 0₽",
+            text="Общий PnL: 0р",
             font_size=dp(24),
             bold=True,
             size_hint_y=None,
@@ -619,7 +610,7 @@ class DashboardScreen(Screen):
         layout.add_widget(self.pnl_label)
         
         self.daily_pnl_label = Label(
-            text="📊 Сегодня: 0₽",
+            text="Сегодня: 0р",
             font_size=dp(20),
             size_hint_y=None,
             height=dp(60),
@@ -628,7 +619,7 @@ class DashboardScreen(Screen):
         layout.add_widget(self.daily_pnl_label)
         
         self.status_label = Label(
-            text="⏸️ Статус: ПАУЗА",
+            text="Статус: ПАУЗА",
             font_size=dp(18),
             size_hint_y=None,
             height=dp(50),
@@ -637,7 +628,7 @@ class DashboardScreen(Screen):
         layout.add_widget(self.status_label)
         
         self.mode_label = Label(
-            text="🔄 Режим: TEST",
+            text="Режим: TEST",
             font_size=dp(16),
             size_hint_y=None,
             height=dp(40),
@@ -648,16 +639,25 @@ class DashboardScreen(Screen):
         btn_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(60), spacing=10)
         
         self.start_btn = Button(
-            text="▶️ СТАРТ",
+            text="СТАРТ",
             font_size=dp(16),
             bold=True,
             background_color=(0.2, 0.8, 0.2, 1)
         )
-        self.start_btn.bind(on_press=self.toggle_trading)
+        self.start_btn.bind(on_press=self.start_trading)
         btn_layout.add_widget(self.start_btn)
         
+        self.stop_btn = Button(
+            text="СТОП",
+            font_size=dp(16),
+            bold=True,
+            background_color=(0.9, 0.2, 0.2, 1)
+        )
+        self.stop_btn.bind(on_press=self.stop_trading)
+        btn_layout.add_widget(self.stop_btn)
+        
         self.mode_btn = Button(
-            text="🔄 РЕЖИМ",
+            text="РЕЖИМ",
             font_size=dp(16),
             bold=True,
             background_color=(0.2, 0.4, 0.8, 1)
@@ -665,19 +665,10 @@ class DashboardScreen(Screen):
         self.mode_btn.bind(on_press=self.switch_mode)
         btn_layout.add_widget(self.mode_btn)
         
-        emergency_btn = Button(
-            text="🛑 СТОП",
-            font_size=dp(16),
-            bold=True,
-            background_color=(0.9, 0.2, 0.2, 1)
-        )
-        emergency_btn.bind(on_press=self.emergency_stop)
-        btn_layout.add_widget(emergency_btn)
-        
         layout.add_widget(btn_layout)
         
         positions_label = Label(
-            text="📋 Активные позиции:",
+            text="Активные позиции:",
             font_size=dp(18),
             bold=True,
             size_hint_y=None,
@@ -697,48 +688,91 @@ class DashboardScreen(Screen):
         scroll.add_widget(self.positions_layout)
         layout.add_widget(scroll)
         
+        # Нижняя навигация
+        nav_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(60), spacing=5)
+        
+        dashboard_btn = Button(
+            text="Главная",
+            font_size=dp(14),
+            background_color=(0.2, 0.6, 0.9, 1)
+        )
+        dashboard_btn.bind(on_press=lambda x: setattr(self.manager, 'current', 'dashboard'))
+        nav_layout.add_widget(dashboard_btn)
+        
+        history_btn = Button(
+            text="История",
+            font_size=dp(14),
+            background_color=(0.2, 0.6, 0.9, 1)
+        )
+        history_btn.bind(on_press=lambda x: setattr(self.manager, 'current', 'history'))
+        nav_layout.add_widget(history_btn)
+        
+        settings_btn = Button(
+            text="Настройки",
+            font_size=dp(14),
+            background_color=(0.2, 0.6, 0.9, 1)
+        )
+        settings_btn.bind(on_press=lambda x: setattr(self.manager, 'current', 'settings'))
+        nav_layout.add_widget(settings_btn)
+        
+        market_btn = Button(
+            text="Рынок",
+            font_size=dp(14),
+            background_color=(0.2, 0.6, 0.9, 1)
+        )
+        market_btn.bind(on_press=lambda x: setattr(self.manager, 'current', 'market'))
+        nav_layout.add_widget(market_btn)
+        
+        layout.add_widget(nav_layout)
         self.add_widget(layout)
     
-    def toggle_trading(self, instance):
-        async def do_toggle():
-            self.bot.data["search_active"] = not self.bot.data.get("search_active", True)
+    def start_trading(self, instance):
+        """Кнопка СТАРТ - запускает поиск сделок"""
+        async def do_start():
+            self.bot.data["search_active"] = True
+            self.status_label.text = "Статус: АКТИВЕН"
+            self.status_label.color = (0.2, 0.9, 0.2, 1)
             await self.bot.safe_save()
-        self.bot.run_async_threadsafe(do_toggle())
+            logger.info("Бот ЗАПУЩЕН")
+        self.bot.run_async_threadsafe(do_start())
+    
+    def stop_trading(self, instance):
+        """Кнопка СТОП - останавливает поиск новых сделок (позиции управляются автоматически)"""
+        async def do_stop():
+            self.bot.data["search_active"] = False
+            self.status_label.text = "Статус: ПАУЗА"
+            self.status_label.color = (1, 1, 1, 1)
+            await self.bot.safe_save()
+            logger.info("Поиск новых сделок ОСТАНОВЛЕН")
+            logger.info("Открытые позиции продолжают управляться автоматически")
+        self.bot.run_async_threadsafe(do_stop())
     
     def switch_mode(self, instance):
         async def do_switch():
             self.bot.mode = "REAL" if self.bot.mode == "TEST" else "TEST"
             CONFIG["MODE"] = self.bot.mode
+            self.mode_label.text = f"Режим: {self.bot.mode}"
             await self.bot.safe_save()
         self.bot.run_async_threadsafe(do_switch())
-    
-    def emergency_stop(self, instance):
-        async def do_kill():
-            with self.bot._data_lock:
-                active_pos = dict(self.bot.data["pos"] if self.bot.mode == "REAL" else self.bot.data["test_pos"])
-            if not active_pos:
-                return
-            for ticker in list(active_pos.keys()):
-                price = self.bot.price_history[ticker][-1] if self.bot.price_history[ticker] else 100.0
-                await self.bot.exit_trade(ticker, price, "MANUAL KILL", 0)
-        self.bot.run_async_threadsafe(do_kill())
     
     def update_data(self, data_snapshot):
         total = data_snapshot.get("total_pnl", 0)
         daily = data_snapshot.get("daily_pnl", 0)
         
         color = (0.2, 0.9, 0.2, 1) if total >= 0 else (0.9, 0.2, 0.2, 1)
-        self.pnl_label.text = f"💰 Общий PnL: {total:.2f}₽"
+        self.pnl_label.text = f"Общий PnL: {total:.2f}р"
         self.pnl_label.color = color
         
         color = (0.2, 0.9, 0.2, 1) if daily >= 0 else (0.9, 0.2, 0.2, 1)
-        self.daily_pnl_label.text = f"📊 Сегодня: {daily:.2f}₽"
+        self.daily_pnl_label.text = f"Сегодня: {daily:.2f}р"
         self.daily_pnl_label.color = color
         
-        status = "▶️ АКТИВЕН" if data_snapshot.get("search_active") else "⏸️ ПАУЗА"
-        self.status_label.text = f"⏳ Статус: {status}"
+        status = "АКТИВЕН" if data_snapshot.get("search_active") else "ПАУЗА"
+        status_color = (0.2, 0.9, 0.2, 1) if data_snapshot.get("search_active") else (1, 1, 1, 1)
+        self.status_label.text = f"Статус: {status}"
+        self.status_label.color = status_color
         
-        self.mode_label.text = f"🔄 Режим: {data_snapshot.get('mode', 'TEST')}"
+        self.mode_label.text = f"Режим: {data_snapshot.get('mode', 'TEST')}"
         
         self.positions_layout.clear_widgets()
         active_pos = data_snapshot.get("pos", {}) if data_snapshot.get("mode") == "REAL" else data_snapshot.get("test_pos", {})
@@ -753,10 +787,10 @@ class DashboardScreen(Screen):
             self.positions_layout.add_widget(label)
         else:
             for ticker, pos in active_pos.items():
-                side_icon = "🟢" if pos['side'] == 'BUY' else "🔴"
+                side_icon = "[BUY]" if pos['side'] == 'BUY' else "[SELL]"
                 pos_label = Label(
                     text=f"{side_icon} {ticker} | {pos['side']} {pos['lot']} лотов\n"
-                         f"Вход: {pos['p']:.2f}₽",
+                         f"Вход: {pos['p']:.2f}р",
                     size_hint_y=None,
                     height=dp(60),
                     color=(1, 1, 1, 1)
@@ -774,7 +808,7 @@ class HistoryScreen(Screen):
         layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
         
         title = Label(
-            text="📜 История сделок",
+            text="История сделок",
             font_size=dp(24),
             bold=True,
             size_hint_y=None,
@@ -784,7 +818,7 @@ class HistoryScreen(Screen):
         layout.add_widget(title)
         
         self.stats_label = Label(
-            text="Всего сделок: 0\nВинрейт: 0%\nСредний профит: 0₽",
+            text="Всего сделок: 0\nВинрейт: 0%\nСредний профит: 0р",
             font_size=dp(16),
             size_hint_y=None,
             height=dp(100),
@@ -802,13 +836,23 @@ class HistoryScreen(Screen):
         scroll.add_widget(self.history_layout)
         layout.add_widget(scroll)
         
+        # Навигация
+        nav_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(60), spacing=5)
+        
+        for name, screen in [("Главная", "dashboard"), ("История", "history"), 
+                             ("Настройки", "settings"), ("Рынок", "market")]:
+            btn = Button(text=name, font_size=dp(14), background_color=(0.2, 0.6, 0.9, 1))
+            btn.bind(on_press=lambda x, s=screen: setattr(self.manager, 'current', s))
+            nav_layout.add_widget(btn)
+        
+        layout.add_widget(nav_layout)
         self.add_widget(layout)
     
     def update_data(self, data_snapshot):
         trades = data_snapshot.get("trade_history", [])
         
         if not trades:
-            self.stats_label.text = "Всего сделок: 0\nВинрейт: 0%\nСредний профит: 0₽"
+            self.stats_label.text = "Всего сделок: 0\nВинрейт: 0%\nСредний профит: 0р"
             self.history_layout.clear_widgets()
             label = Label(text="История пуста", size_hint_y=None, height=dp(40), color=(0.7, 0.7, 0.7, 1))
             self.history_layout.add_widget(label)
@@ -822,18 +866,18 @@ class HistoryScreen(Screen):
         self.stats_label.text = (
             f"Всего сделок: {total}\n"
             f"Винрейт: {winrate:.1f}%\n"
-            f"Средний профит: {avg_profit:.2f}₽"
+            f"Средний профит: {avg_profit:.2f}р"
         )
         
         self.history_layout.clear_widgets()
         for trade in reversed(trades[-20:]):
-            icon = "✅" if trade['pnl'] > 0 else "❌"
+            icon = "[OK]" if trade['pnl'] > 0 else "[X]"
             color = (0.2, 0.9, 0.2, 1) if trade['pnl'] > 0 else (0.9, 0.2, 0.2, 1)
             
             trade_label = Label(
                 text=f"{icon} {trade['ticker']} ({trade['side']})\n"
-                     f"Вход: {trade['entry_price']:.2f} → Выход: {trade['exit_price']:.2f}\n"
-                     f"PnL: {trade['pnl']:.2f}₽ | {trade['reason']}\n"
+                     f"Вход: {trade['entry_price']:.2f} -> Выход: {trade['exit_price']:.2f}\n"
+                     f"PnL: {trade['pnl']:.2f}р | {trade['reason']}\n"
                      f"Время: {trade['time']}",
                 size_hint_y=None,
                 height=dp(100),
@@ -852,7 +896,7 @@ class SettingsScreen(Screen):
         layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
         
         title = Label(
-            text="⚙️ Настройки",
+            text="Настройки",
             font_size=dp(24),
             bold=True,
             size_hint_y=None,
@@ -878,6 +922,16 @@ class SettingsScreen(Screen):
             box.add_widget(value)
             layout.add_widget(box)
         
+        # Навигация
+        nav_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(60), spacing=5)
+        
+        for name, screen in [("Главная", "dashboard"), ("История", "history"), 
+                             ("Настройки", "settings"), ("Рынок", "market")]:
+            btn = Button(text=name, font_size=dp(14), background_color=(0.2, 0.6, 0.9, 1))
+            btn.bind(on_press=lambda x, s=screen: setattr(self.manager, 'current', s))
+            nav_layout.add_widget(btn)
+        
+        layout.add_widget(nav_layout)
         self.add_widget(layout)
     
     def update_data(self, data_snapshot):
@@ -894,7 +948,7 @@ class MarketScreen(Screen):
         layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
         
         title = Label(
-            text="📊 Рынок",
+            text="Рынок",
             font_size=dp(24),
             bold=True,
             size_hint_y=None,
@@ -913,6 +967,16 @@ class MarketScreen(Screen):
         scroll.add_widget(self.assets_layout)
         layout.add_widget(scroll)
         
+        # Навигация
+        nav_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(60), spacing=5)
+        
+        for name, screen in [("Главная", "dashboard"), ("История", "history"), 
+                             ("Настройки", "settings"), ("Рынок", "market")]:
+            btn = Button(text=name, font_size=dp(14), background_color=(0.2, 0.6, 0.9, 1))
+            btn.bind(on_press=lambda x, s=screen: setattr(self.manager, 'current', s))
+            nav_layout.add_widget(btn)
+        
+        layout.add_widget(nav_layout)
         self.add_widget(layout)
     
     def update_data(self, data_snapshot):
@@ -932,7 +996,7 @@ class MarketScreen(Screen):
                 iq_color = (0.9, 0.2, 0.2, 1)
             
             asset_label = Label(
-                text=f"{ticker}\nЦена: {price:.2f}₽ | IQ: {iq:.2f}",
+                text=f"{ticker}\nЦена: {price:.2f}р | IQ: {iq:.2f}",
                 size_hint_y=None,
                 height=dp(60),
                 color=iq_color
@@ -946,7 +1010,7 @@ class MarketScreen(Screen):
 class TITANProApp(App):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.title = "🚀 TITAN Pro"
+        self.title = "TITAN Pro"
         self.bot = TitanAbsoluteMonolith()
         self._loop_thread = None
     
