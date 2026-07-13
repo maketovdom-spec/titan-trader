@@ -1,4 +1,4 @@
-ker} — статimport sys
+import sys
 import os
 import time
 import json
@@ -99,7 +99,7 @@ PROFILE = ClientProfile("CLIENT_DEFAULT")
 DAILY_LIMIT_PCT = 3.5
 MARGIN_FACTOR = 0.15
 WALL_MULTIPLIER = 5.5
-MAX_SPREAD_LIMIT = 0.0006  # Резервная константа, теперь используется адаптивный порог
+MAX_SPREAD_LIMIT = 0.0006
 IQ_STOCKS_THRESHOLD = 7.0 * PROFILE.iq_mult
 IQ_FUTURES_THRESHOLD = 3.0
 VOL_BREATH_THRESHOLD = 0.4
@@ -252,6 +252,69 @@ class TitanAbsoluteMonolith:
         if self._http and not self._http.closed:
             await self._http.close()
         logger.info("TITAN остановлен")
+
+    # === ОТКАЗОУСТОЙЧИВЫЙ КАНАЛ: HTTP POLLING FALLBACK ===
+    async def http_polling_loop(self):
+        """Fallback: запрос стакана через HTTP раз в 2 секунды"""
+        logger.info("🔄 Запущен HTTP polling fallback (резервный канал)")
+        while True:
+            try:
+                if not await self._ensure_jwt():
+                    await asyncio.sleep(5)
+                    continue
+                
+                headers = {"Authorization": f"Bearer {self.jwt}"}
+                
+                for ticker in BASE_ASSETS:
+                    try:
+                        url = f"https://api.alor.ru/md/v2/Securities/MOEX/{ticker}/orderbook?depth=10"
+                        async with self._http.get(url, headers=headers, 
+                                                 timeout=aiohttp.ClientTimeout(total=3)) as r:
+                            if r.status == 200:
+                                data = await r.json()
+                                bids = data.get('bids', [])
+                                asks = data.get('asks', [])
+                                if bids and asks:
+                                    price = (bids[0]['price'] + asks[0]['price']) / 2
+                                    await self.process_tick(ticker, price, {"bids": bids, "asks": asks})
+                    except Exception as e:
+                        logger.debug(f"HTTP poll error {ticker}: {e}")
+                
+                await asyncio.sleep(2)
+            except Exception as e:
+                logger.error(f"HTTP polling critical: {e}")
+                await asyncio.sleep(5)
+
+    # === ОТКАЗОУСТОЙЧИВЫЙ КАНАЛ: СИНТЕТИКА ДЛЯ TEST ===
+    async def synthetic_tick_generator(self):
+        """Только для TEST: генерирует фейковые тики, если реальные данные не идут"""
+        if self.mode != "TEST":
+            return
+            
+        logger.info("🎲 Синтетический генератор тиков активирован (TEST mode)")
+        base_prices = {
+            "SBER": 280.0, "GAZP": 160.0, "Si": 92000.0, 
+            "CNY": 12.5, "GOLD": 6800.0, "VTBR": 0.025, 
+            "MGNT": 6500.0, "LKOH": 7000.0
+        }
+        
+        while True:
+            await asyncio.sleep(1)
+            for ticker in BASE_ASSETS:
+                now = time.time()
+                buf = self.tick_buffers[ticker]
+                last_tick_time = buf.times[(buf.head - 1) & buf.mask] if buf.head > 0 else 0
+                
+                # Если реальных данных не было 5 секунд, включаем синтетику
+                if now - last_tick_time > 5.0:
+                    base = base_prices.get(ticker, 100.0)
+                    price = base * (1 + random.uniform(-0.001, 0.001))
+                    book = {
+                        'bids': [{'price': price * 0.9995, 'volume': 1000}],
+                        'asks': [{'price': price * 1.0005, 'volume': 1000}]
+                    }
+                    await self.process_tick(ticker, price, book)
+                    base_prices[ticker] = price
 
     async def _ensure_jwt(self) -> bool:
         async with self._jwt_lock:
@@ -478,7 +541,6 @@ class TitanAbsoluteMonolith:
         if bids and asks and asks[0]['price'] and bids[0]['price']:
             current_spread = (asks[0]['price'] - bids[0]['price']) / max(bids[0]['price'], 0.001)
 
-            # Безопасный расчёт дельты цены
             prev_p = self.last_tick_price[ticker]
             price_change = abs(price - prev_p) if prev_p > 0 else 0.0
             self.last_tick_price[ticker] = price
@@ -533,24 +595,18 @@ class TitanAbsoluteMonolith:
         else:
             c_truth = 1.0
 
-        # Сырой IQ
         raw_iq = static_iq * (0.3 + 0.7 * tick_factor) * c_truth
 
-        # === СПРИНТ 3: C_trend (Trend Filter) ===
         fast_iq_prev = self.iq_history[ticker][-1] if self.iq_history[ticker] else raw_iq
-        # Быстрая EMA (адаптивная)
         gamma_fast = 0.2 + 0.6 * tick_factor
         cur_iq = gamma_fast * raw_iq + (1 - gamma_fast) * fast_iq_prev
 
-        # Медленная EMA (тренд)
         iq_slow_prev = self.iq_slow[ticker]
         self.iq_slow[ticker] = (1.0 - self.IQ_SLOW_GAMMA) * iq_slow_prev + self.IQ_SLOW_GAMMA * cur_iq
 
-        # C_trend через tanh
         iq_diff = cur_iq - self.iq_slow[ticker]
         c_trend = 1.0 + 0.3 * math.tanh(iq_diff / 2.0)
 
-        # Финальный IQ с тренд-контекстом
         final_iq = cur_iq * c_trend
 
         iqh = self.iq_history[ticker]
@@ -687,6 +743,7 @@ async def _get_access_token(http_session: aiohttp.ClientSession) -> Optional[str
         logger.error(f"OAuth error: {e}")
     return None
 
+# === ДИАГНОСТИЧЕСКАЯ ВЕРСИЯ WS (с логами первых сообщений) ===
 async def ws_market_data_feed(bot: TitanAbsoluteMonolith):
     while True:
         access_token = None
@@ -699,7 +756,7 @@ async def ws_market_data_feed(bot: TitanAbsoluteMonolith):
                 await asyncio.sleep(10)
                 continue
 
-            logger.info(f"Подключение к Alor WebSocket: {ALOR_WS_URL}")
+            logger.info(f"🔗 Подключение к Alor WebSocket: {ALOR_WS_URL}")
 
             ssl_context = ssl.create_default_context()
             ssl_context.check_hostname = False
@@ -707,7 +764,7 @@ async def ws_market_data_feed(bot: TitanAbsoluteMonolith):
 
             async with aiohttp.ClientSession() as session:
                 async with session.ws_connect(ALOR_WS_URL, heartbeat=30, ssl=ssl_context) as ws:
-                    logger.info("WS-соединение установлено")
+                    logger.info("✅ WS-соединение установлено")
 
                     for ticker in BASE_ASSETS:
                         sub_msg = {
@@ -721,11 +778,16 @@ async def ws_market_data_feed(bot: TitanAbsoluteMonolith):
                             "token": access_token
                         }
                         await ws.send_json(sub_msg)
-                        logger.debug(f"Подписка: {ticker}")
+                        logger.info(f"📤 Подписка отправлена: {ticker}")
 
-                    logger.info(f"Подписано {len(BASE_ASSETS)} активов")
-
+                    logger.info(f"✅ Подписано {len(BASE_ASSETS)} активов. Ожидаем данные...")
+                    
+                    msg_count = 0
                     async for raw_msg in ws:
+                        msg_count += 1
+                        if msg_count <= 5:
+                            logger.info(f"📥 Получено WS сообщение #{msg_count}: {str(raw_msg.data)[:150]}...")
+                            
                         if raw_msg.type == aiohttp.WSMsgType.TEXT:
                             try:
                                 data = json.loads(raw_msg.data)
@@ -740,12 +802,13 @@ async def ws_market_data_feed(bot: TitanAbsoluteMonolith):
                             except Exception as e:
                                 logger.debug(f"WS parse error: {e}")
                         elif raw_msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                            logger.warning("WS соединение закрыто или ошибка")
                             break
 
         except Exception as e:
             logger.error(f"WS critical error: {e}")
 
-        logger.warning("WS переподключение через 5с...")
+        logger.warning("🔄 WS переподключение через 5с...")
         await asyncio.sleep(5)
 
 # ============================================================================
@@ -934,7 +997,6 @@ class DashboardScreen(Screen):
         self.daily_pnl_label.text = f"Сегодня: {daily:.2f}р"
         self.daily_pnl_label.color = color
 
-        # Проверка warmup
         market = data_snapshot.get("market", {})
         any_warmup = any(market.get(t, {}).get("warmup", 100) < 100 for t in BASE_ASSETS)
 
@@ -1228,10 +1290,20 @@ class TITANProApp(App):
 
         return sm
 
+    # === ПАРАЛЛЕЛЬНЫЙ ЗАПУСК: WS + HTTP + СИНТЕТИКА ===
     async def async_main(self):
         self.bot._loop = asyncio.get_running_loop()
         await self.bot.start()
-        await ws_market_data_feed(self.bot)
+        
+        tasks = [
+            ws_market_data_feed(self.bot),
+            self.bot.http_polling_loop()
+        ]
+        
+        if self.bot.mode == "TEST":
+            tasks.append(self.bot.synthetic_tick_generator())
+            
+        await asyncio.gather(*tasks)
 
     def start_bot(self, dt):
         def run_loop():
