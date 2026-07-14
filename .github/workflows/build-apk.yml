@@ -1,15 +1,14 @@
-name: Build TITAN Pro APK
+name: Build TITAN Pro Client APK
 
 on:
   workflow_dispatch:
   push:
-    tags:
-      - 'v*'
+    branches: [ main, master ]
 
 jobs:
   build-apk:
     runs-on: ubuntu-22.04
-    timeout-minutes: 180
+    timeout-minutes: 240
 
     steps:
     - name: Checkout code
@@ -36,7 +35,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y \
-          build-essential git ffmpeg wget \
+          build-essential git ffmpeg wget ccache \
           libsdl2-dev libsdl2-image-dev \
           libsdl2-mixer-dev libsdl2-ttf-dev \
           libportmidi-dev libswscale-dev \
@@ -49,36 +48,18 @@ jobs:
           python3-dev automake \
           libssl-dev lld clang
 
-    - name: Export Android SDK & NDK Environment
-      run: |
-        echo "ANDROID_HOME=$HOME/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
-        echo "ANDROID_SDK_ROOT=$HOME/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
-        echo "ANDROID_NDK_ROOT=" >> $GITHUB_ENV
-        echo "ANDROID_NDK_HOME=" >> $GITHUB_ENV
-        echo "ANDROID_NDK=" >> $GITHUB_ENV
-
     - name: Install Python build tools
       run: |
         python -m pip install --upgrade pip
         pip install --upgrade buildozer python-for-android
-        pip install "cython>=3.0.0,<3.1.0" "setuptools>=65.0.0,<70.0.0" wheel
-
-    - name: Set root permission & accept licenses
-      run: |
-        echo "BUILDOZER_ALLOW_ROOT=1" >> $GITHUB_ENV
-        echo "ANDROID_SDK_ACCEPT_LICENSES=true" >> $GITHUB_ENV
-
-    - name: Set non-interactive mode
-      run: |
-        echo "DEBIAN_FRONTEND=noninteractive" >> $GITHUB_ENV
-        echo "CI=true" >> $GITHUB_ENV
-        echo "BUILD_IN_CI=true" >> $GITHUB_ENV
+        pip install "cython<3.0" "setuptools>=65.0.0,<70.0.0" wheel
+        # FIX #1: Устанавливаем совместимые версии для модуля cgi
+        pip install "Jinja2<3.1" "MarkupSafe<2.1"
 
     - name: Verify main script exists
       run: |
-        # Проверяем, что файл переименован в main.py
         if [ ! -f "main.py" ]; then
-          echo "❌ main.py not found! Please rename titan_pro.py to main.py in your repo."
+          echo "❌ main.py not found! Убедись, что файл переименован в main.py"
           exit 1
         fi
 
@@ -93,29 +74,28 @@ jobs:
         [app]
         title = TITAN Pro
         package.name = titanpro
-        package.domain = org.titan
+        package.domain = org.titan.pro
         source.dir = .
-        # ✅ ИЗМЕНЕНО: теперь указываем main.py
         source.main = main.py
         source.include_exts = py,png,jpg,kv,atlas,json
         version = 1.0.0
-        requirements = python3,kivy,aiohttp==3.9.0,pytz,async_timeout,openssl,certifi,pyjnius
-        android.permissions = INTERNET,ACCESS_NETWORK_STATE,WAKE_LOCK
+        # FIX #2: Добавлены aiohttp и pytz, убрана точная версия python
+        requirements = python3,kivy,aiohttp,pytz
+        android.permissions = INTERNET,ACCESS_NETWORK_STATE,WAKE_LOCK,WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE
         android.api = 33
         android.minapi = 21
         android.ndk_api = 21
         android.ndk = 25c
         android.accept_sdk_license = True
         android.allow_insecure_keystore = True
-        android.archs = armeabi-v7a, arm64-v8a
+        android.archs = arm64-v8a
         orientation = portrait
         fullscreen = 0
         log_level = 2
         warn_on_root = 0
-        android.gradle_options = -Xmx2048m -XX:MaxPermSize=512m
+        android.gradle_options = -Xmx2048m
 
         [buildozer]
-        # ✅ ВОЗВРАЩАЕМ на 1, чтобы лог не обрезался
         log_level = 1
         warn_on_root = 0
         EOF
@@ -129,6 +109,12 @@ jobs:
           ${{ runner.os }}-buildozer-
 
     - name: Build APK
+      env:
+        BUILDOZER_ALLOW_ROOT: "1"
+        ANDROID_SDK_ACCEPT_LICENSES: "true"
+        DEBIAN_FRONTEND: "noninteractive"
+        CI: "true"
+        BUILD_IN_CI: "true"
       run: buildozer -v android debug
 
     - name: Find APK
@@ -146,15 +132,17 @@ jobs:
     - name: Upload APK as Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: titan-pro-apk
+        name: TITAN-Pro-Client-APK
         path: ${{ steps.find_apk.outputs.apk_path }}
         retention-days: 30
 
-    - name: Create GitHub Release
-      if: startsWith(github.ref, 'refs/tags/v')
-      uses: softprops/action-gh-release@v2
+    - name: Upload build logs on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
       with:
-        files: ${{ steps.find_apk.outputs.apk_path }}
-        generate_release_notes: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        name: build-logs
+        path: |
+          .buildozer/**/config.log
+          .buildozer/**/*.log
+          ~/.buildozer/**/*.log
+        retention-days: 7
