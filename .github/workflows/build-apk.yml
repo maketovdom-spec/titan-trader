@@ -52,8 +52,9 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install --upgrade buildozer python-for-android
+        # Инструменты сборки на хосте (не для Android)
         pip install "cython<3.0" "setuptools>=65.0.0,<70.0.0" wheel
-        # FIX #1: Устанавливаем совместимые версии для модуля cgi
+        # Совместимость со старыми версиями python-for-android, использующими cgi
         pip install "Jinja2<3.1" "MarkupSafe<2.1"
 
     - name: Verify main script exists
@@ -66,7 +67,10 @@ jobs:
     - name: Create debug keystore
       run: |
         mkdir -p ~/.android
-        keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US"
+        keytool -genkey -v -keystore ~/.android/debug.keystore \
+          -storepass android -alias androiddebugkey -keypass android \
+          -keyalg RSA -keysize 2048 -validity 10000 \
+          -dname "CN=Android Debug, O=Android, C=US"
 
     - name: Create buildozer.spec
       run: |
@@ -79,7 +83,7 @@ jobs:
         source.main = main.py
         source.include_exts = py,png,jpg,kv,atlas,json
         version = 1.0.0
-        # FIX #2: Добавлены aiohttp и pytz, убрана точная версия python
+        # Убраны версии и cython — p4a сам подберёт совместимые
         requirements = python3,kivy,aiohttp,pytz
         android.permissions = INTERNET,ACCESS_NETWORK_STATE,WAKE_LOCK,WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE
         android.api = 33
