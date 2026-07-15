@@ -58,7 +58,7 @@ jobs:
     - name: Verify main script exists
       run: |
         if [ ! -f "main.py" ]; then
-          echo "❌ main.py not found!"
+          echo "❌ main.py not found! Убедись, что файл переименован в main.py"
           exit 1
         fi
 
@@ -78,7 +78,7 @@ jobs:
         source.main = main.py
         source.include_exts = py,png,jpg,kv,atlas,json
         version = 1.0.0
-        requirements = python3,kivy,aiohttp,pytz
+        requirements = python3,kivy==2.2.1,aiohttp==3.9.0,pytz,async_timeout,openssl,certifi,pyjnius
         android.permissions = INTERNET,ACCESS_NETWORK_STATE,WAKE_LOCK,WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE
         android.api = 33
         android.minapi = 21
@@ -86,7 +86,7 @@ jobs:
         android.ndk = 25c
         android.accept_sdk_license = True
         android.allow_insecure_keystore = True
-        android.archs = arm64-v8a
+        android.archs = armeabi-v7a, arm64-v8a
         orientation = portrait
         fullscreen = 0
         log_level = 2
@@ -97,11 +97,6 @@ jobs:
         log_level = 1
         warn_on_root = 0
         EOF
-
-    - name: Clean Buildozer cache
-      run: |
-        rm -rf ~/.buildozer/android/platform/build-arm64-v8a
-        rm -rf .buildozer/android/platform/build-arm64-v8a
 
     - name: Cache Buildozer global directory
       uses: actions/cache@v4
