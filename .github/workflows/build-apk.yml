@@ -52,7 +52,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install --upgrade buildozer python-for-android
-        pip install "cython<3.0" "setuptools>=65.0.0,<70.0.0" wheel
+        pip install "cython>=3.0" "setuptools>=65.0.0,<70.0.0" wheel
         pip install "Jinja2<3.1" "MarkupSafe<2.1"
 
     - name: Verify main script exists
@@ -66,6 +66,11 @@ jobs:
       run: |
         mkdir -p ~/.android
         keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US"
+
+    - name: Clean Buildozer cache
+      run: |
+        rm -rf ~/.buildozer/android/platform/build-armeabi-v7a_arm64-v8a
+        rm -rf .buildozer/android/platform/build-armeabi-v7a_arm64-v8a
 
     - name: Create buildozer.spec
       run: |
