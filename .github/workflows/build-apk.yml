@@ -52,7 +52,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install "buildozer==1.5.0" "python-for-android==2024.01.21"
-        pip install "cython<3.0" "setuptools>=65.0.0,<70.0.0" wheel
+        pip install "cython>=3.0" "setuptools>=65.0.0,<70.0.0" wheel
         pip install "Jinja2<3.1" "MarkupSafe<2.1"
 
     - name: Verify main script exists
@@ -78,12 +78,13 @@ jobs:
         source.main = main.py
         source.include_exts = py,png,jpg,kv,atlas,json
         version = 1.0.0
-        requirements = python3,kivy==2.2.1,aiohttp==3.9.0,pytz,async_timeout,certifi,pyjnius
+        requirements = python3,kivy,aiohttp==3.9.0,pytz,async_timeout,openssl,certifi,pyjnius
         android.permissions = INTERNET,ACCESS_NETWORK_STATE,WAKE_LOCK,WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE
         android.api = 33
         android.minapi = 21
         android.ndk_api = 21
-        android.ndk = 25b
+        # ИСПРАВЛЕНИЕ: Изменено с 25b на 25c для совместимости с Python 3.11 в p4a
+        android.ndk = 25c
         android.accept_sdk_license = True
         android.allow_insecure_keystore = True
         android.archs = armeabi-v7a, arm64-v8a
@@ -102,9 +103,7 @@ jobs:
     - name: Cache Buildozer global directory
       uses: actions/cache@v4
       with:
-        path: |
-          ~/.buildozer
-          .buildozer
+        path: ~/.buildozer
         key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec') }}
         restore-keys: |
           ${{ runner.os }}-buildozer-
