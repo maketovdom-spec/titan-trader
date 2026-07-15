@@ -58,7 +58,7 @@ jobs:
     - name: Verify main script exists
       run: |
         if [ ! -f "main.py" ]; then
-          echo "❌ main.py not found! Убедись, что файл переименован в main.py"
+          echo "❌ main.py not found!"
           exit 1
         fi
 
@@ -83,7 +83,7 @@ jobs:
         source.main = main.py
         source.include_exts = py,png,jpg,kv,atlas,json
         version = 1.0.0
-        requirements = python3,kivy==2.2.1,aiohttp==3.9.0,pytz,async_timeout,openssl,certifi,pyjnius
+        requirements = python3.11,kivy==2.2.1,aiohttp==3.9.0,pytz,async_timeout,openssl,certifi,pyjnius
         android.permissions = INTERNET,ACCESS_NETWORK_STATE,WAKE_LOCK,WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE
         android.api = 33
         android.minapi = 21
@@ -92,6 +92,7 @@ jobs:
         android.accept_sdk_license = True
         android.allow_insecure_keystore = True
         android.archs = armeabi-v7a, arm64-v8a
+        android.python_version = 3.11
         orientation = portrait
         fullscreen = 0
         log_level = 2
