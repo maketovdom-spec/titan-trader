@@ -33,9 +33,8 @@ from kivy.clock import Clock
 from kivy.metrics import dp
 
 # ============================================================================
-# 0. БЕЗОПАСНОЕ ЛОГИРОВАНИЕ ОШИБОК (Android-friendly)
+# 0. ШТАТНОЕ ЛОГИРОВАНИЕ
 # ============================================================================
-# Пишем лог в приватную директорию приложения, где гарантированно есть права на запись
 LOG_DIR = os.path.dirname(os.path.abspath(__file__)) or '.'
 LOG_FILE = os.path.join(LOG_DIR, "titan_crash.log")
 
@@ -103,7 +102,7 @@ def check_license_status() -> bool:
                 logger.info("✅ Лицензия активна и валидна")
                 return True
             else:
-                logger.warning("⚠️ Лицензионный ключ не совпадает с Device ID")
+                logger.warning("️ Лицензионный ключ не совпадает с Device ID")
         except Exception as e:
             logger.error(f"Ошибка чтения лицензии: {e}")
     return False
@@ -488,7 +487,7 @@ class TitanAbsoluteMonolith:
         tau_base = 3.0
         rate_ratio = current_rate / max(self.base_tick_rate[ticker], 0.1)
         lam = (1.0 / tau_base) * (0.5 + 0.5 * min(rate_ratio, 3.0))
-        lam = min(0.8, max(0.3, lam)) # Сглаживание
+        lam = min(0.8, max(0.3, lam))
         
         eff_bid_vol, eff_ask_vol = 0.0, 0.0
         for i in range(5):
@@ -1040,15 +1039,81 @@ class TITANProApp(App):
             self.bot.run_async_threadsafe(self.bot.stop())
 
 # ============================================================================
-# 13. БЕЗОПАСНЫЙ ЗАПУСК С ПЕРЕХВАТОМ КРИТИЧЕСКИХ ОШИБОК
+# 13. ДИАГНОСТИКА: ПЕРЕХВАТ ОШИБОК НА ВСЕХ ЭТАПАХ
 # ============================================================================
 if __name__ == '__main__':
+    import sys
+    import os
+    import traceback
+    from datetime import datetime
+    
+    # Безопасный путь для лога
     try:
-        logger.info("🚀 Запуск TITAN Pro Client...")
-        logger.info(f"📁 Лог-файл будет сохранён в: {LOG_FILE}")
+        log_dir = os.path.dirname(os.path.abspath(__file__))
+    except:
+        log_dir = '/storage/emulated/0/Android/data/org.titan.pro/files'
+    
+    log_file = os.path.join(log_dir, 'titan_crash_log.txt')
+    
+    def save_error(error_msg):
+        """Сохраняет ошибку в файл и системный лог"""
+        try:
+            with open(log_file, 'w', encoding='utf-8') as f:
+                f.write(f"TIME: {datetime.now()}\n\n{error_msg}\n")
+        except:
+            pass
+        
+        try:
+            import logging
+            logging.critical(f"TITAN_CRASH: {error_msg}")
+        except:
+            pass
+    
+    def show_error_popup(error_msg):
+        """Пытается показать ошибку через Kivy Popup"""
+        try:
+            from kivy.uix.popup import Popup
+            from kivy.uix.label import Label
+            from kivy.uix.button import Button
+            from kivy.uix.boxlayout import BoxLayout
+            from kivy.uix.scrollview import ScrollView
+            
+            layout = BoxLayout(orientation='vertical', padding=10)
+            
+            scroll = ScrollView()
+            label = Label(
+                text=error_msg, 
+                halign='left', 
+                valign='top', 
+                padding=10,
+                size_hint_y=None
+            )
+            label.bind(texture_size=label.setter('size'))
+            scroll.add_widget(label)
+            layout.add_widget(scroll)
+            
+            btn = Button(text='Закрыть приложение', size_hint_y=None, height=50, 
+                        background_color=(0.8, 0.2, 0.2, 1))
+            layout.add_widget(btn)
+            
+            popup = Popup(
+                title='💥 ОШИБКА ЗАПУСКА TITAN PRO', 
+                content=layout, 
+                size_hint=(0.95, 0.8),
+                auto_dismiss=False
+            )
+            btn.bind(on_press=lambda x: (popup.dismiss(), sys.exit(1)))
+            popup.open()
+            return True
+        except Exception as e:
+            save_error(f"Popup failed: {str(e)}\n\nOriginal error:\n{error_msg}")
+            return False
+    
+    try:
         TITANProApp().run()
     except Exception as e:
-        logger.critical("💥 КРИТИЧЕСКАЯ ОШИБКА ПРИ ЗАПУСКЕ:")
-        logger.exception(str(e))
-        import sys
+        error_text = f"CRITICAL ERROR:\n{str(e)}\n\n{'='*50}\n\nTRACEBACK:\n{traceback.format_exc()}"
+        save_error(error_text)
+        if not show_error_popup(error_text):
+            print(error_text)
         sys.exit(1)
