@@ -79,12 +79,13 @@ jobs:
         source.include_exts = py,png,jpg,kv,atlas,json
         version = 1.0.0
         
-        # Убран async_timeout, добавлен hostpython3
-        requirements = python3,hostpython3,kivy,android,aiohttp==3.9.0,yarl,multidict,idna,attrs,pytz,openssl,sqlite3,certifi,pyjnius
+        # НАШ ФИНАЛЬНЫЙ СИНТЕЗ: Без лишнего пакета android, только чистые зависимости и рецепты
+        requirements = python3,kivy,aiohttp==3.9.0,pytz,async_timeout,certifi,pyjnius,sqlite3,openssl
         
-        # ИСПРАВЛЕНО: Убраны устаревшие WRITE/READ_EXTERNAL_STORAGE (вызывали сбой на Android 13)
+        # БЕЗОПАСНОСТЬ: Изолированное хранилище под Android 11+ (без WRITE/READ_EXTERNAL_STORAGE)
         android.permissions = INTERNET,ACCESS_NETWORK_STATE,WAKE_LOCK
         
+        # ЖЕЛЕЗОБЕТОННАЯ СВЯЗКА: API 33 и NDK 25c для гарантированной сборки в GitHub
         android.api = 33
         android.minapi = 21
         android.ndk_api = 21
@@ -99,6 +100,7 @@ jobs:
         warn_on_root = 0
         android.gradle_options = -Xmx2048m
         
+        # Настройка SSL для бесперебойной работы запросов к Alor API
         android.meta_data = kivy.ssl_context=certifi
 
         [buildozer]
