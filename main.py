@@ -28,6 +28,8 @@ from kivy.uix.button import Button
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.textinput import TextInput
 from kivy.uix.popup import Popup
+from kivy.uix.switch import Switch
+from kivy.uix.checkbox import CheckBox
 from kivy.core.window import Window
 from kivy.clock import Clock
 from kivy.metrics import dp
@@ -47,6 +49,138 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger("TITAN_PRO")
+
+# ============================================================================
+# ЮРИДИЧЕСКИЕ ФАЙЛЫ
+# ============================================================================
+LEGAL_ACCEPTED_FILE = os.path.join(LOG_DIR, "legal_accepted.json")
+
+# Текст политики конфиденциальности и пользовательского соглашения
+LEGAL_TEXT = """
+ПОЛЬЗОВАТЕЛЬСКОЕ СОГЛАШЕНИЕ И ПОЛИТИКА КОНФИДЕНЦИАЛЬНОСТИ
+
+Последнее обновление: 2025 год
+
+1. ОБЩИЕ ПОЛОЖЕНИЯ
+
+1.1. Настоящее Пользовательское соглашение (далее — «Соглашение») регулирует отношения между разработчиком программного обеспечения TITAN Pro (далее — «Разработчик») и пользователем (далее — «Пользователь») в части использования программного продукта TITAN Pro (далее — «Программа»).
+
+1.2. Установка и использование Программы означает полное и безоговорочное согласие Пользователя с условиями настоящего Соглашения.
+
+1.3. Программа является техническим инструментом для автоматизации взаимодействия с биржевым API брокера Alor. Программа НЕ является инвестиционной рекомендацией, НЕ осуществляет доверительное управление и НЕ гарантирует получение прибыли.
+
+2. ПРЕДМЕТ СОГЛАШЕНИЯ
+
+2.1. Разработчик предоставляет Пользователю право использования Программы на условиях простой (неисключительной) лицензии.
+
+2.2. Программа предназначена исключительно для автоматизации торговых операций на финансовых рынках по параметрам, заданным самим Пользователем.
+
+2.3. Все торговые решения принимаются Пользователем самостоятельно путем настройки параметров риск-менеджмента, порогов входа (IQ) и выбора активов в интерфейсе Программы.
+
+3. ОТКАЗ ОТ ОТВЕТСТВЕННОСТИ
+
+3.1. Программа предоставляется по принципу «как есть» (as is). Разработчик не несет ответственности за любые убытки, включая упущенную выгоду, возникшие в результате использования Программы.
+
+3.2. Торговля на финансовых рынках сопряжена с высокими рисками потери капитала. Пользователь несет полную ответственность за свои торговые решения и настройки Программы.
+
+3.3. Разработчик не гарантирует бесперебойную работу Программы, отсутствие ошибок или совместимость с любыми версиями операционных систем.
+
+3.4. Результаты прошлых торговых операций не гарантируют будущих доходов.
+
+4. ОБЯЗАННОСТИ ПОЛЬЗОВАТЕЛЯ
+
+4.1. Пользователь обязуется самостоятельно настроить параметры риск-менеджмента в соответствии со своим финансовым положением и толерантностью к риску.
+
+4.2. Пользователь обязуется не передавать лицензионный ключ третьим лицам.
+
+4.3. Пользователь обязуется не декомпилировать, не модифицировать и не распространять Программу.
+
+4.4. Пользователь подтверждает, что имеет право совершать торговые операции на финансовых рынках в соответствии с законодательством своей страны.
+
+5. ПОЛИТИКА КОНФИДЕНЦИАЛЬНОСТИ
+
+5.1. Разработчик собирает и обрабатывает следующие данные Пользователя:
+- Device ID (уникальный идентификатор устройства) — для целей лицензирования;
+- API-токен брокера Alor — для подключения к торговому API (хранится локально в зашифрованном виде);
+- Настройки риск-профиля — для работы Программы.
+
+5.2. Все чувствительные данные (API-токены, настройки) шифруются и хранятся локально на устройстве Пользователя. Разработчик не имеет доступа к этим данным.
+
+5.3. Разработчик не передает данные Пользователя третьим лицам, за исключением случаев, предусмотренных законодательством.
+
+5.4. Пользователь вправе удалить все свои данные путем удаления Программы с устройства.
+
+6. ЛИЦЕНЗИРОВАНИЕ
+
+6.1. Лицензия на использование Программы предоставляется на одно устройство (Device ID).
+
+6.2. Лицензионный ключ привязан к конкретному устройству и не может быть перенесен на другое устройство без согласия Разработчика.
+
+6.3. Разработчик вправе аннулировать лицензию в случае нарушения условий настоящего Соглашения.
+
+7. ЗАКЛЮЧИТЕЛЬНЫЕ ПОЛОЖЕНИЯ
+
+7.1. Настоящее Соглашение вступает в силу с момента его акцепта Пользователем и действует до момента удаления Программы.
+
+7.2. Разработчик вправе вносить изменения в настоящее Соглашение. Новая редакция Соглашения вступает в силу с момента ее публикации.
+
+7.3. Все споры, возникающие из настоящего Соглашения, разрешаются путем переговоров. При недостижении согласия — в соответствии с законодательством Российской Федерации.
+
+НАЖИМАЯ "ПРИНЯТЬ", ВЫ ПОДТВЕРЖДАЕТЕ, ЧТО ОЗНАКОМИЛИСЬ С УСЛОВИЯМИ НАСТОЯЩЕГО СОГЛАШЕНИЯ И ПОЛНОСТЬЮ ИХ ПРИНИМАЕТЕ.
+"""
+
+def is_legal_accepted() -> bool:
+    """Проверяет, принял ли пользователь условия соглашения"""
+    if os.path.exists(LEGAL_ACCEPTED_FILE):
+        try:
+            with open(LEGAL_ACCEPTED_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            return data.get('accepted', False)
+        except:
+            pass
+    return False
+
+def accept_legal():
+    """Сохраняет факт принятия условий соглашения"""
+    with open(LEGAL_ACCEPTED_FILE, 'w', encoding='utf-8') as f:
+        json.dump({
+            'accepted': True,
+            'timestamp': dt.now().isoformat(),
+            'version': '1.0'
+        }, f)
+    logger.info("✅ Пользователь принял условия соглашения")
+
+# ============================================================================
+# НАСТРОЙКИ РИСК-ПРОФИЛЕЙ (ЮРИДИЧЕСКАЯ ЗАЩИТА ОТ ДУ)
+# ============================================================================
+SETTINGS_FILE = os.path.join(LOG_DIR, "titan_settings.json")
+
+PRESETS = {
+    "КОНСЕРВАТИВНЫЙ": {
+        'iq_threshold': 8.5, 'max_lots': 5, 'max_open_positions': 3,
+        'assets': {"SBER": True, "GOLD": True, "GAZP": False, "Si": False, "CNY": False}
+    },
+    "УМЕРЕННЫЙ": {
+        'iq_threshold': 6.0, 'max_lots': 20, 'max_open_positions': 5,
+        'assets': {"SBER": True, "GAZP": True, "GOLD": True, "Si": True, "CNY": True}
+    },
+    "АГРЕССИВНЫЙ": {
+        'iq_threshold': 3.0, 'max_lots': 100, 'max_open_positions': 10,
+        'assets': {"SBER": True, "GAZP": True, "GOLD": True, "Si": True, "CNY": True}
+    }
+}
+
+def load_risk_settings():
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except: pass
+    return PRESETS["УМЕРЕННЫЙ"]
+
+def save_risk_settings(settings):
+    with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(settings, f)
 
 # ============================================================================
 # 1. ANDROID WAKE LOCK
@@ -102,7 +236,7 @@ def check_license_status() -> bool:
                 logger.info("✅ Лицензия активна и валидна")
                 return True
             else:
-                logger.warning("️ Лицензионный ключ не совпадает с Device ID")
+                logger.warning("⚠️ Лицензионный ключ не совпадает с Device ID")
         except Exception as e:
             logger.error(f"Ошибка чтения лицензии: {e}")
     return False
@@ -256,8 +390,6 @@ IQ_STOCKS_THRESHOLD = 7.0 * PROFILE.iq_mult
 IQ_FUTURES_THRESHOLD = 3.0
 VOL_BREATH_THRESHOLD = 0.4
 DIANA_TIGHT_TRAIL = 0.0015 * PROFILE.trail_mult
-MAX_POSITION_LOTS = int(1000 * PROFILE.size_mult)
-MAX_OPEN_POSITIONS = 5
 
 # ============================================================================
 # 7. TITAN MONOLITH CORE
@@ -306,12 +438,22 @@ class TitanAbsoluteMonolith:
         
         self.order_queue = OrderQueue(ORDER_QUEUE_DB)
         self.sent_order_ids: Dict[str, float] = {}
+        
+        # Поток-безопасные настройки риск-профиля
+        self.settings_lock = threading.Lock()
+        self.runtime_settings = load_risk_settings()
 
     def run_async_threadsafe(self, coro):
         if self._loop and self._loop.is_running():
             asyncio.run_coroutine_threadsafe(coro, self._loop)
         else:
             logger.error("Async loop not running")
+
+    def update_runtime_settings(self, new_settings):
+        """Безопасное обновление настроек из UI потока (Kivy)"""
+        with self.settings_lock:
+            self.runtime_settings = new_settings
+        logger.info(f"⚙️ Настройки риск-профиля обновлены: {new_settings.get('profile', 'Custom')}")
 
     async def get_safe_data(self):
         async with self._data_lock:
@@ -589,6 +731,18 @@ class TitanAbsoluteMonolith:
 
     async def process_tick(self, ticker: str, price: float, book: dict):
         now = time.monotonic()
+        
+        # Безопасное чтение настроек (защита от гонки потоков)
+        with self.settings_lock:
+            current_iq_threshold = self.runtime_settings['iq_threshold']
+            current_max_lots = self.runtime_settings['max_lots']
+            current_max_pos = self.runtime_settings['max_open_positions']
+            active_assets = self.runtime_settings['assets']
+            
+        # Если актив отключен пользователем — игнорируем его
+        if not active_assets.get(ticker, False):
+            return
+
         self.tick_buffers[ticker].push(price, now)
         self.price_history[ticker].append(price)
         if len(self.price_history[ticker]) > 600:
@@ -682,15 +836,18 @@ class TitanAbsoluteMonolith:
                 if not self.data.get("search_active", False): return
                 if active_limits.get(mkt, 0) <= 0: return
                 if not self.check_volatility(ticker, price): return
-                if len(active_pos) >= MAX_OPEN_POSITIONS: return
+                
+                # ИСПОЛЬЗУЕМ НАСТРОЙКИ ПОЛЬЗОВАТЕЛЯ
+                if len(active_pos) >= current_max_pos: return
                 
                 base_thr = IQ_FUTURES_THRESHOLD if ticker in ("GOLD", "Si") else IQ_STOCKS_THRESHOLD
-                iq_thr = self.get_adaptive_iq_threshold(ticker, base_thr)
+                iq_thr = max(base_thr, current_iq_threshold)
                 if final_iq < iq_thr: return
                 
                 side = "BUY" if snap["bid_power"] > snap["ask_power"] else "SELL"
                 risk = MARGIN_FACTOR * active_limits.get(mkt, 10000)
-                lot = min(max(1, int(risk / (price * 0.01))), MAX_POSITION_LOTS)
+                lot = min(max(1, int(risk / (price * 0.01))), current_max_lots)
+                
                 best_level_vol = bids[0]['volume'] if side == "BUY" else asks[0]['volume']
                 slippage_ratio = lot / max(best_level_vol, 1.0)
                 expected_slippage = (current_spread / 2.0) + 0.1 * (slippage_ratio ** 2)
@@ -756,7 +913,7 @@ async def ws_market_data_feed(bot: TitanAbsoluteMonolith):
                                 if data.get("opcode") == "OrderBook":
                                     ticker = data.get("code")
                                     if ticker:
-                                        bids, asks = data.get("bids", []), data.get("asks", [])
+                                        bids, asks = data.get("bids', []), data.get("asks", [])
                                         if bids and asks:
                                             price = (bids[0]['price'] + asks[0]['price']) / 2
                                             await bot.process_tick(ticker, price, {"bids": bids, "asks": asks})
@@ -770,7 +927,78 @@ async def ws_market_data_feed(bot: TitanAbsoluteMonolith):
             retry_count += 1
 
 # ============================================================================
-# 9. UI: ЭКРАН АКТИВАЦИИ
+# 9. UI: ЮРИДИЧЕСКИЙ ЭКРАН (ПЕРВЫЙ ЭКРАН ПРИ ЗАПУСКЕ)
+# ============================================================================
+class LegalScreen(Screen):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        layout = BoxLayout(orientation='vertical', padding=15, spacing=10)
+        
+        # Заголовок
+        layout.add_widget(Label(text="TITAN Pro — Правовая информация", font_size=dp(20), bold=True, size_hint_y=None, height=dp(50)))
+        layout.add_widget(Label(text="Пожалуйста, ознакомьтесь с условиями использования", font_size=dp(14), color=(0.8, 0.8, 0.8, 1), size_hint_y=None, height=dp(30)))
+        
+        # Прокручиваемый текст соглашения
+        scroll = ScrollView(size_hint=(1, 1))
+        legal_label = Label(
+            text=LEGAL_TEXT,
+            font_size=dp(12),
+            halign='left',
+            valign='top',
+            padding=[10, 10, 10, 10],
+            size_hint_y=None
+        )
+        legal_label.bind(texture_size=legal_label.setter('size'))
+        scroll.add_widget(legal_label)
+        layout.add_widget(scroll)
+        
+        # Чекбокс принятия условий
+        checkbox_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(50), spacing=10)
+        self.checkbox = CheckBox(active=False, size_hint_x=None, width=dp(40))
+        checkbox_layout.add_widget(self.checkbox)
+        checkbox_layout.add_widget(Label(text="Я ознакомился и принимаю условия Пользовательского соглашения и Политики конфиденциальности", font_size=dp(12), halign='left'))
+        layout.add_widget(checkbox_layout)
+        
+        # Кнопка "Продолжить" (изначально заблокирована)
+        self.continue_btn = Button(
+            text="ПРОДОЛЖИТЬ",
+            font_size=dp(16),
+            bold=True,
+            background_color=(0.5, 0.5, 0.5, 1),  # Серый цвет (заблокирована)
+            size_hint_y=None,
+            height=dp(50),
+            disabled=True
+        )
+        self.continue_btn.bind(on_press=self.on_accept)
+        layout.add_widget(self.continue_btn)
+        
+        # Связываем чекбокс с кнопкой
+        self.checkbox.bind(active=self.on_checkbox_change)
+        
+        self.add_widget(layout)
+    
+    def on_checkbox_change(self, instance, value):
+        """Активирует/деактивирует кнопку при изменении чекбокса"""
+        if value:
+            self.continue_btn.disabled = False
+            self.continue_btn.background_color = (0.2, 0.8, 0.2, 1)  # Зеленый (активна)
+        else:
+            self.continue_btn.disabled = True
+            self.continue_btn.background_color = (0.5, 0.5, 0.5, 1)  # Серый (заблокирована)
+    
+    def on_accept(self, instance):
+        """Пользователь принял условия"""
+        if self.checkbox.active:
+            accept_legal()  # Сохраняем факт принятия
+            logger.info("✅ Пользователь принял условия соглашения")
+            # Переходим к следующему экрану
+            if IS_LICENSED:
+                self.manager.current = 'risk_profile'
+            else:
+                self.manager.current = 'activation'
+
+# ============================================================================
+# 10. UI: ЭКРАН АКТИВАЦИИ
 # ============================================================================
 class ActivationScreen(Screen):
     def __init__(self, **kwargs):
@@ -828,11 +1056,47 @@ class ActivationScreen(Screen):
             self.status_lbl.color = (0.9, 0.2, 0.2, 1)
 
     def _go_to_main(self):
-        self.manager.current = 'dashboard'
-        self.manager.app.start_bot(0)
+        # Переход на экран выбора риск-профиля
+        self.manager.current = 'risk_profile'
 
 # ============================================================================
-# 10. UI: НАСТРОЙКИ
+# 11. UI: ВЫБОР РИСК-ПРОФИЛЯ
+# ============================================================================
+class RiskProfileScreen(Screen):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        layout = BoxLayout(orientation='vertical', padding=20, spacing=15)
+        layout.add_widget(Label(text="Выберите Риск-Профиль", font_size=dp(24), bold=True, size_hint_y=None, height=dp(50)))
+        layout.add_widget(Label(text="Это определяет, как бот будет управлять вашим капиталом.", font_size=dp(14), color=(0.8, 0.8, 0.8, 1), size_hint_y=None, height=dp(40)))
+        
+        profiles = [
+            {"name": "КОНСЕРВАТИВНЫЙ", "desc": "IQ > 8.5 | Макс 5 лотов | Только SBER, GOLD", "color": (0.2, 0.8, 0.2, 1)},
+            {"name": "УМЕРЕННЫЙ (Рекомендуется)", "desc": "IQ > 6.0 | Макс 20 лотов | Все активы", "color": (0.2, 0.6, 0.9, 1)},
+            {"name": "АГРЕССИВНЫЙ", "desc": "IQ > 3.0 | Макс 100 лотов | Все активы", "color": (0.9, 0.2, 0.2, 1)}
+        ]
+        
+        for p in profiles:
+            btn = Button(text=f"{p['name']}\n{p['desc']}", font_size=dp(14), background_color=p['color'], size_hint_y=None, height=dp(80))
+            btn.bind(on_press=lambda x, profile=p['name']: self.apply_profile(profile))
+            layout.add_widget(btn)
+            
+        self.add_widget(layout)
+
+    def apply_profile(self, profile_name):
+        if profile_name not in PRESETS: return
+        
+        settings = PRESETS[profile_name].copy()
+        settings['profile'] = profile_name
+        save_risk_settings(settings)
+        
+        app = App.get_running_app()
+        if app and app.bot:
+            app.bot.update_runtime_settings(settings)
+            
+        self.manager.current = 'dashboard'
+
+# ============================================================================
+# 12. UI: НАСТРОЙКИ
 # ============================================================================
 class SettingsScreen(Screen):
     def __init__(self, **kwargs):
@@ -883,7 +1147,7 @@ class SettingsScreen(Screen):
         self.status_lbl.text, self.status_lbl.color = "✅ Данные сохранены и зашифрованы! (Перезапустите приложение)", (0.2, 0.9, 0.2, 1)
 
 # ============================================================================
-# 11. UI: DASHBOARD & HISTORY
+# 13. UI: DASHBOARD & HISTORY
 # ============================================================================
 class DashboardScreen(Screen):
     def __init__(self, **kwargs):
@@ -977,7 +1241,7 @@ class HistoryScreen(Screen):
             ))
 
 # ============================================================================
-# 12. APP
+# 14. APP
 # ============================================================================
 class TITANProApp(App):
     def __init__(self, **kwargs):
@@ -988,20 +1252,41 @@ class TITANProApp(App):
 
     def build(self):
         sm = ScreenManager()
+        
+        # ВСЕГДА показываем юридический экран первым (если не принято)
+        legal_screen = LegalScreen(name='legal')
+        sm.add_widget(legal_screen)
+        
         if not IS_LICENSED:
             act = ActivationScreen(name='activation')
             act.manager = sm
             sm.add_widget(act)
-            sm.current = 'activation'
-            return sm
+        
+        # Экран выбора профиля
+        risk_screen = RiskProfileScreen(name='risk_profile')
+        sm.add_widget(risk_screen)
         
         dash = DashboardScreen(name='dashboard')
         dash.bot = self.bot
         sm.add_widget(dash)
         sm.add_widget(HistoryScreen(name='history'))
         sm.add_widget(SettingsScreen(name='settings'))
-        sm.current = 'dashboard'
-        Clock.schedule_once(self.start_bot, 0.5)
+        
+        # Определяем начальный экран
+        if not is_legal_accepted():
+            # Первый запуск — показываем юридический экран
+            sm.current = 'legal'
+        elif not IS_LICENSED:
+            # Лицензия не активна — показываем активацию
+            sm.current = 'activation'
+        elif not os.path.exists(SETTINGS_FILE):
+            # Настройки риска не выбраны
+            sm.current = 'risk_profile'
+        else:
+            # Всё настроено — сразу в дашборд
+            sm.current = 'dashboard'
+            Clock.schedule_once(self.start_bot, 0.5)
+            
         Clock.schedule_interval(self.update_ui, 1.0)
         return sm
 
@@ -1030,7 +1315,7 @@ class TITANProApp(App):
 
     def _apply_ui_update(self, data_snapshot):
         sm = self.root
-        if sm and sm.current != 'activation':
+        if sm and sm.current not in ['legal', 'activation', 'risk_profile']:
             sm.get_screen('dashboard').update_data(data_snapshot)
             sm.get_screen('history').update_data(data_snapshot)
 
@@ -1039,7 +1324,7 @@ class TITANProApp(App):
             self.bot.run_async_threadsafe(self.bot.stop())
 
 # ============================================================================
-# 13. ДИАГНОСТИКА: ПЕРЕХВАТ ОШИБОК НА ВСЕХ ЭТАПАХ
+# 15. ДИАГНОСТИКА: ПЕРЕХВАТ ОШИБОК
 # ============================================================================
 if __name__ == '__main__':
     import sys
@@ -1047,7 +1332,6 @@ if __name__ == '__main__':
     import traceback
     from datetime import datetime
     
-    # Безопасный путь для лога
     try:
         log_dir = os.path.dirname(os.path.abspath(__file__))
     except:
@@ -1056,13 +1340,11 @@ if __name__ == '__main__':
     log_file = os.path.join(log_dir, 'titan_crash_log.txt')
     
     def save_error(error_msg):
-        """Сохраняет ошибку в файл и системный лог"""
         try:
             with open(log_file, 'w', encoding='utf-8') as f:
                 f.write(f"TIME: {datetime.now()}\n\n{error_msg}\n")
         except:
             pass
-        
         try:
             import logging
             logging.critical(f"TITAN_CRASH: {error_msg}")
@@ -1070,7 +1352,6 @@ if __name__ == '__main__':
             pass
     
     def show_error_popup(error_msg):
-        """Пытается показать ошибку через Kivy Popup"""
         try:
             from kivy.uix.popup import Popup
             from kivy.uix.label import Label
@@ -1079,29 +1360,16 @@ if __name__ == '__main__':
             from kivy.uix.scrollview import ScrollView
             
             layout = BoxLayout(orientation='vertical', padding=10)
-            
             scroll = ScrollView()
-            label = Label(
-                text=error_msg, 
-                halign='left', 
-                valign='top', 
-                padding=10,
-                size_hint_y=None
-            )
+            label = Label(text=error_msg, halign='left', valign='top', padding=10, size_hint_y=None)
             label.bind(texture_size=label.setter('size'))
             scroll.add_widget(label)
             layout.add_widget(scroll)
             
-            btn = Button(text='Закрыть приложение', size_hint_y=None, height=50, 
-                        background_color=(0.8, 0.2, 0.2, 1))
+            btn = Button(text='Закрыть приложение', size_hint_y=None, height=50, background_color=(0.8, 0.2, 0.2, 1))
             layout.add_widget(btn)
             
-            popup = Popup(
-                title='💥 ОШИБКА ЗАПУСКА TITAN PRO', 
-                content=layout, 
-                size_hint=(0.95, 0.8),
-                auto_dismiss=False
-            )
+            popup = Popup(title='💥 ОШИБКА ЗАПУСКА TITAN PRO', content=layout, size_hint=(0.95, 0.8), auto_dismiss=False)
             btn.bind(on_press=lambda x: (popup.dismiss(), sys.exit(1)))
             popup.open()
             return True
