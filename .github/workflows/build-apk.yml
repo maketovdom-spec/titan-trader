@@ -79,20 +79,17 @@ jobs:
         source.include_exts = py,png,jpg,kv,atlas,json
         version = 1.0.0
         
-        # НАШ ФИНАЛЬНЫЙ СИНТЕЗ: Без лишнего пакета android, только чистые зависимости и рецепты
         requirements = python3,kivy,aiohttp==3.9.0,pytz,async_timeout,certifi,pyjnius,sqlite3,openssl
         
-        # БЕЗОПАСНОСТЬ: Изолированное хранилище под Android 11+ (без WRITE/READ_EXTERNAL_STORAGE)
         android.permissions = INTERNET,ACCESS_NETWORK_STATE,WAKE_LOCK
         
-        # ЖЕЛЕЗОБЕТОННАЯ СВЯЗКА: API 33 и NDK 25c для гарантированной сборки в GitHub
         android.api = 33
         android.minapi = 21
         android.ndk_api = 21
         android.ndk = 25c
         android.accept_sdk_license = True
         android.allow_insecure_keystore = True
-        android.archs = armeabi-v7a, arm64-v8a
+        android.archs = arm64-v8a
         android.python_version = 3.11
         orientation = portrait
         fullscreen = 0
@@ -100,7 +97,6 @@ jobs:
         warn_on_root = 0
         android.gradle_options = -Xmx2048m
         
-        # Настройка SSL для бесперебойной работы запросов к Alor API
         android.meta_data = kivy.ssl_context=certifi
 
         [buildozer]
@@ -114,7 +110,7 @@ jobs:
         path: |
           ~/.buildozer
           .buildozer
-        key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec') }}
+        key: ${{ runner.os }}-buildozer-${{ hashFiles('.github/workflows/build-apk.yml') }}
         restore-keys: |
           ${{ runner.os }}-buildozer-
 
@@ -125,6 +121,7 @@ jobs:
         DEBIAN_FRONTEND: "noninteractive"
         CI: "true"
         BUILD_IN_CI: "true"
+        LDFLAGS: "-fuse-ld=lld"
       run: buildozer -v android debug
 
     - name: Find APK
