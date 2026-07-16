@@ -12,6 +12,7 @@ import hashlib
 import random
 import base64
 import sqlite3
+import traceback
 from datetime import datetime as dt
 from typing import Dict, Optional, List
 
@@ -32,6 +33,23 @@ from kivy.clock import Clock
 from kivy.metrics import dp
 
 # ============================================================================
+# 0. БЕЗОПАСНОЕ ЛОГИРОВАНИЕ ОШИБОК (Android-friendly)
+# ============================================================================
+# Пишем лог в приватную директорию приложения, где гарантированно есть права на запись
+LOG_DIR = os.path.dirname(os.path.abspath(__file__)) or '.'
+LOG_FILE = os.path.join(LOG_DIR, "titan_crash.log")
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler(LOG_FILE, encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("TITAN_PRO")
+
+# ============================================================================
 # 1. ANDROID WAKE LOCK
 # ============================================================================
 HAS_ANDROID_WAKELOCK = False
@@ -43,12 +61,13 @@ try:
     PowerManager = autoclass('android.os.PowerManager')
     
     activity = PythonActivity.mActivity
-    power_manager = activity.getSystemService(Context.POWER_SERVICE)
-    wake_lock = power_manager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TITAN:TradingLock")
-    HAS_ANDROID_WAKELOCK = True
-    logging.info("✅ Android WakeLock инициализирован")
-except ImportError:
-    logging.info("⚠️ Запуск не на Android, WakeLock отключен")
+    if activity is not None:
+        power_manager = activity.getSystemService(Context.POWER_SERVICE)
+        wake_lock = power_manager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TITAN:TradingLock")
+        HAS_ANDROID_WAKELOCK = True
+        logger.info("✅ Android WakeLock инициализирован")
+except Exception as e:
+    logger.warning(f"⚠️ WakeLock не инициализирован: {e}")
 
 # ============================================================================
 # 2. DEVICE ID & ЛИЦЕНЗИОННАЯ ЗАЩИТА
@@ -59,16 +78,20 @@ try:
     Settings = autoclass('android.provider.Settings$Secure')
     PythonActivity = autoclass('org.kivy.android.PythonActivity')
     activity = PythonActivity.mActivity
+    if activity is None:
+        raise Exception("PythonActivity.mActivity is None")
+    
     content_resolver = activity.getContentResolver()
     android_id = Settings.Secure.getString(content_resolver, Settings.Secure.ANDROID_ID)
     DEVICE_ID = hashlib.sha256(android_id.encode()).hexdigest()[:16]
-    logging.info(f"✅ Device ID: {DEVICE_ID}")
+    logger.info(f"✅ Device ID получен: {DEVICE_ID}")
 except Exception as e:
-    logging.warning(f"⚠️ Не удалось получить Device ID: {e}")
+    logger.warning(f"⚠️ Не удалось получить Device ID через pyjnius: {e}. Использую fallback.")
+    DEVICE_ID = "FALLBACK_" + hashlib.sha256(str(time.time()).encode()).hexdigest()[:16]
 
 LICENSE_SECRET = "TITAN_NEVINNOMYSSK_2026_SECRET_KEY"
-LICENSE_FILE = os.path.join('.', "titan_license.key")
-USER_DATA_FILE = os.path.join('.', "titan_user_data.enc")
+LICENSE_FILE = os.path.join(LOG_DIR, "titan_license.key")
+USER_DATA_FILE = os.path.join(LOG_DIR, "titan_user_data.enc")
 
 def check_license_status() -> bool:
     if os.path.exists(LICENSE_FILE):
@@ -77,10 +100,12 @@ def check_license_status() -> bool:
                 stored_key = f.read().strip()
             expected_key = hashlib.sha256(f"{DEVICE_ID}{LICENSE_SECRET}".encode()).hexdigest()[:32]
             if stored_key == expected_key:
-                logging.info("✅ Лицензия активна и валидна")
+                logger.info("✅ Лицензия активна и валидна")
                 return True
+            else:
+                logger.warning("⚠️ Лицензионный ключ не совпадает с Device ID")
         except Exception as e:
-            logging.error(f"Ошибка чтения лицензии: {e}")
+            logger.error(f"Ошибка чтения лицензии: {e}")
     return False
 
 IS_LICENSED = check_license_status()
@@ -192,9 +217,6 @@ class TickRingBuffer:
 # ============================================================================
 # 6. КОНФИГУРАЦИЯ
 # ============================================================================
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
-logger = logging.getLogger("TITAN")
-
 USER_CREDS = load_user_credentials()
 
 CONFIG = {
@@ -203,10 +225,9 @@ CONFIG = {
     "MODE": "REAL",
 }
 
-DATA_DIR = '.'
-STATE_FILE = os.path.join(DATA_DIR, "titan_monolith.json")
-STATE_TMP_FILE = os.path.join(DATA_DIR, "titan_monolith.tmp.json")
-ORDER_QUEUE_DB = os.path.join(DATA_DIR, "pending_orders.db")
+STATE_FILE = os.path.join(LOG_DIR, "titan_monolith.json")
+STATE_TMP_FILE = os.path.join(LOG_DIR, "titan_monolith.tmp.json")
+ORDER_QUEUE_DB = os.path.join(LOG_DIR, "pending_orders.db")
 
 PORTFOLIOS = {
     "FUT": USER_CREDS.get("fut", "7502Y5H"),
@@ -863,7 +884,7 @@ class SettingsScreen(Screen):
         self.status_lbl.text, self.status_lbl.color = "✅ Данные сохранены и зашифрованы! (Перезапустите приложение)", (0.2, 0.9, 0.2, 1)
 
 # ============================================================================
-# 11. UI: DASHBOARD & HISTORY (Упрощенные для клиента)
+# 11. UI: DASHBOARD & HISTORY
 # ============================================================================
 class DashboardScreen(Screen):
     def __init__(self, **kwargs):
@@ -1018,5 +1039,16 @@ class TITANProApp(App):
         if self.bot:
             self.bot.run_async_threadsafe(self.bot.stop())
 
+# ============================================================================
+# 13. БЕЗОПАСНЫЙ ЗАПУСК С ПЕРЕХВАТОМ КРИТИЧЕСКИХ ОШИБОК
+# ============================================================================
 if __name__ == '__main__':
-    TITANProApp().run()
+    try:
+        logger.info("🚀 Запуск TITAN Pro Client...")
+        logger.info(f"📁 Лог-файл будет сохранён в: {LOG_FILE}")
+        TITANProApp().run()
+    except Exception as e:
+        logger.critical("💥 КРИТИЧЕСКАЯ ОШИБКА ПРИ ЗАПУСКЕ:")
+        logger.exception(str(e))
+        import sys
+        sys.exit(1)
