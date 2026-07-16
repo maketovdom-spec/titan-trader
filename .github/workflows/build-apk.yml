@@ -79,8 +79,8 @@ jobs:
         source.include_exts = py,png,jpg,kv,atlas,json
         version = 1.0.0
         
-        # ИСПРАВЛЕНО: Добавлены android, yarl, multidict, idna, attrs, sqlite3 для стабильной работы aiohttp и БД
-        requirements = python3,kivy,android,aiohttp==3.9.0,yarl,multidict,idna,attrs,pytz,async_timeout,openssl,sqlite3,certifi,pyjnius
+        # ИСПРАВЛЕНО: Убран async_timeout (встроен в Python 3.11, вызывал конфликт)
+        requirements = python3,kivy,android,aiohttp==3.9.0,yarl,multidict,idna,attrs,pytz,openssl,sqlite3,certifi,pyjnius
         
         android.permissions = INTERNET,ACCESS_NETWORK_STATE,WAKE_LOCK,WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE
         android.api = 33
@@ -97,7 +97,6 @@ jobs:
         warn_on_root = 0
         android.gradle_options = -Xmx2048m
         
-        # ИСПРАВЛЕНО: Строгий синтаксис без пробелов для корректной работы SSL на Android
         android.meta_data = kivy.ssl_context=certifi
 
         [buildozer]
