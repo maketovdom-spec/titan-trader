@@ -35,17 +35,28 @@ from kivy.metrics import dp
 # ============================================================================
 # 0. ШТАТНОЕ ЛОГИРОВАНИЕ
 # ============================================================================
-LOG_DIR = os.path.dirname(os.path.abspath(__file__)) or '.'
-LOG_FILE = os.path.join(LOG_DIR, "titan_crash.log")
+LOG_DIR = None  # Будет установлен в App
+LOG_FILE = None
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.FileHandler(LOG_FILE, encoding='utf-8'),
-        logging.StreamHandler()
-    ]
-)
+def setup_logging():
+    global LOG_DIR, LOG_FILE
+    if LOG_DIR is None:
+        try:
+            LOG_DIR = App.get_running_app().user_data_dir if App.get_running_app() else os.getcwd()
+        except:
+            LOG_DIR = os.getcwd()
+    LOG_FILE = os.path.join(LOG_DIR, "titan_crash.log")
+    
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[
+            logging.FileHandler(LOG_FILE, encoding='utf-8'),
+            logging.StreamHandler()
+        ]
+    )
+
+setup_logging()
 logger = logging.getLogger("TITAN_PRO")
 
 # ============================================================================
@@ -96,8 +107,16 @@ except Exception as e:
     DEVICE_ID = "FALLBACK_" + hashlib.sha256(str(time.time()).encode()).hexdigest()[:16]
 
 LICENSE_SECRET = "TITAN_NEVINNOMYSSK_2026_SECRET_KEY"
-LICENSE_FILE = os.path.join(LOG_DIR, "titan_license.key")
-USER_DATA_FILE = os.path.join(LOG_DIR, "titan_user_data.enc")
+LICENSE_FILE = None
+USER_DATA_FILE = None
+
+def get_file_paths():
+    global LICENSE_FILE, USER_DATA_FILE
+    if LICENSE_FILE is None:
+        LICENSE_FILE = os.path.join(LOG_DIR, "titan_license.key")
+        USER_DATA_FILE = os.path.join(LOG_DIR, "titan_user_data.enc")
+
+get_file_paths()
 
 def check_license_status() -> bool:
     if os.path.exists(LICENSE_FILE):
@@ -151,7 +170,17 @@ def load_user_credentials() -> dict:
 # ============================================================================
 # 4. ЮРИДИЧЕСКИЕ ФАЙЛЫ & НАСТРОЙКИ РИСКА
 # ============================================================================
-LEGAL_ACCEPTED_FILE = os.path.join(LOG_DIR, "legal_accepted.json")
+LEGAL_ACCEPTED_FILE = None
+SETTINGS_FILE = None
+
+def get_settings_paths():
+    global LEGAL_ACCEPTED_FILE, SETTINGS_FILE
+    if LEGAL_ACCEPTED_FILE is None:
+        LEGAL_ACCEPTED_FILE = os.path.join(LOG_DIR, "legal_accepted.json")
+        SETTINGS_FILE = os.path.join(LOG_DIR, "titan_settings.json")
+
+get_settings_paths()
+
 LEGAL_TEXT = """
 ПОЛЬЗОВАТЕЛЬСКОЕ СОГЛАШЕНИЕ TITAN PRO
 
@@ -192,7 +221,6 @@ def accept_legal():
         json.dump({'accepted': True, 'timestamp': dt.now().isoformat(), 'version': '1.0'}, f)
     logger.info("✅ Пользователь принял условия соглашения")
 
-SETTINGS_FILE = os.path.join(LOG_DIR, "titan_settings.json")
 PRESETS = {
     "КОНСЕРВАТИВНЫЙ": {'iq_threshold': 8.5, 'max_lots': 5, 'max_open_positions': 3, 'assets': {"SBER": True, "GOLD": True, "GAZP": False, "Si": False, "CNY": False}},
     "УМЕРЕННЫЙ": {'iq_threshold': 6.0, 'max_lots': 20, 'max_open_positions': 5, 'assets': {"SBER": True, "GAZP": True, "GOLD": True, "Si": True, "CNY": True}},
@@ -212,7 +240,7 @@ def save_risk_settings(settings):
         json.dump(settings, f)
 
 # ============================================================================
-# 5. ASYNC-SAFE SQLITE ОЧЕРЕДЬ
+# 5. ASYNC-SAFE SQLITE ОЧЕРЕДЬ С RETRY
 # ============================================================================
 class OrderQueue:
     def __init__(self, db_path: str):
@@ -226,13 +254,19 @@ class OrderQueue:
         self.conn.commit()
     
     def _sync_add_order(self, order_id, ticker, side, qty, price, mkt):
-        self.conn.execute('INSERT OR REPLACE INTO pending_orders VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                          (order_id, ticker, side, qty, price, mkt, time.monotonic(), 'PENDING'))
-        self.conn.commit()
+        try:
+            self.conn.execute('INSERT OR REPLACE INTO pending_orders VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                              (order_id, ticker, side, qty, price, mkt, time.monotonic(), 'PENDING'))
+            self.conn.commit()
+        except Exception as e:
+            logger.error(f"SQLite error: {e}")
 
     def _sync_remove_order(self, order_id):
-        self.conn.execute('DELETE FROM pending_orders WHERE order_id = ?', (order_id,))
-        self.conn.commit()
+        try:
+            self.conn.execute('DELETE FROM pending_orders WHERE order_id = ?', (order_id,))
+            self.conn.commit()
+        except Exception as e:
+            logger.error(f"SQLite error: {e}")
 
     async def add_order(self, order_id: str, ticker: str, side: str, qty: int, price: float, mkt: str):
         loop = asyncio.get_running_loop()
@@ -243,7 +277,10 @@ class OrderQueue:
         await loop.run_in_executor(None, self._sync_remove_order, order_id)
     
     def close(self):
-        self.conn.close()
+        try:
+            self.conn.close()
+        except:
+            pass
 
 # ============================================================================
 # 6. RING BUFFER
@@ -273,7 +310,7 @@ class TickRingBuffer:
         return count
 
 # ============================================================================
-# 7. TITAN MONOLITH CORE (ПОЛНАЯ МАТЕМАТИКА)
+# 7. TITAN MONOLITH CORE (ПОЛНАЯ МАТЕМАТИКА + RETRY)
 # ============================================================================
 BASE_ASSETS = ["SBER", "GAZP", "GOLD", "Si", "CNY"]
 moscow_tz = pytz.timezone('Europe/Moscow')
@@ -347,6 +384,27 @@ class TitanAbsoluteMonolith:
             self.runtime_settings = new_settings
         logger.info(f"⚙️ Настройки риск-профиля обновлены: {new_settings.get('profile')}")
 
+    # === RETRY-ЛОГИКА ДЛЯ API ===
+    async def safe_get(self, url: str, retries: int = 3) -> Optional[dict]:
+        for attempt in range(retries):
+            try:
+                async with self._http.get(url, timeout=aiohttp.ClientTimeout(total=4)) as r:
+                    if r.status == 200:
+                        return await r.json()
+                    elif r.status in (429, 503):
+                        await asyncio.sleep(2 ** attempt)
+                        continue
+                    else:
+                        logger.error(f"API error {r.status}")
+                        break
+            except asyncio.TimeoutError:
+                logger.warning(f"Timeout on {url}")
+                await asyncio.sleep(1)
+            except Exception as e:
+                logger.error(f"Request error: {e}")
+                await asyncio.sleep(1)
+        return None
+
     async def _ensure_jwt(self) -> bool:
         async with self._jwt_lock:
             if time.monotonic() < self.jwt_expiry and self.jwt: return True
@@ -354,7 +412,7 @@ class TitanAbsoluteMonolith:
                 creds = load_user_credentials()
                 token = creds.get("token", "")
                 if not token:
-                    logger.warning("⚠️ Токен не найден. Введите его в настройках.")
+                    logger.warning("️ Токен не найден. Введите его в настройках.")
                     return False
                 
                 url = f"https://oauth.alor.ru/refresh?token={token}"
@@ -646,13 +704,13 @@ class TitanAbsoluteMonolith:
                     "comm_paid": 0.0, "entry_iq_real": final_iq, "peak_iq": final_iq, "max_prof": 0.0
                 }
                 active_pos[ticker] = pos
-                logger.info(f"🚀 ОТКРЫТА: {ticker} ({side}) {lot} лотов @ {price} | IQ: {final_iq:.2f} | Slippage: {expected_slippage:.4f}")
+                logger.info(f" ОТКРЫТА: {ticker} ({side}) {lot} лотов @ {price} | IQ: {final_iq:.2f} | Slippage: {expected_slippage:.4f}")
         
         if need_exit: 
             await self.exit_trade(ticker, exit_price, exit_reason, exit_prof)
 
     async def http_polling_loop(self):
-        logger.info("🔄 HTTP polling fallback запущен")
+        logger.info("🔄 HTTP polling fallback запущен с retry-логикой")
         while True:
             try:
                 if self.ws_connected:
@@ -662,17 +720,14 @@ class TitanAbsoluteMonolith:
                     await asyncio.sleep(5); continue
                 
                 for ticker in BASE_ASSETS:
-                    try:
-                        url = f"https://api.alor.ru/md/v2/Securities/MOEX/{ticker}/orderbook?depth=10"
-                        async with self._http.get(url, timeout=aiohttp.ClientTimeout(total=3)) as r:
-                            if r.status == 200:
-                                data = await r.json()
-                                bids, asks = data.get('bids', []), data.get('asks', [])
-                                if bids and asks:
-                                    price = (bids[0]['price'] + asks[0]['price']) / 2
-                                    await self.process_tick(ticker, price, {"bids": bids, "asks": asks})
-                    except Exception:
-                        pass
+                    url = f"https://api.alor.ru/md/v2/Securities/MOEX/{ticker}/orderbook?depth=10"
+                    data = await self.safe_get(url, retries=3)
+                    if data:
+                        bids, asks = data.get('bids', []), data.get('asks', [])
+                        if bids and asks:
+                            price = (bids[0]['price'] + asks[0]['price']) / 2
+                            await self.process_tick(ticker, price, {"bids": bids, "asks": asks})
+                
                 await asyncio.sleep(2)
             except Exception as e:
                 logger.error(f"HTTP polling error: {e}")
@@ -868,7 +923,7 @@ class DashboardScreen(Screen):
     def stop_trading(self, instance):
         if self.bot:
             self.bot.data["search_active"] = False
-            self.status_label.text = "Статус: ПАУЗА "
+            self.status_label.text = "Статус: ПАУЗА ⏸"
             self.status_label.color = (1, 1, 1, 1)
             self.info_label.text = "Торговля приостановлена."
 
@@ -883,6 +938,12 @@ class TITANProApp(App):
         self._loop_thread = None
 
     def build(self):
+        global LOG_DIR
+        LOG_DIR = self.user_data_dir
+        get_file_paths()
+        get_settings_paths()
+        setup_logging()
+        
         sm = ScreenManager()
         if not is_legal_accepted():
             sm.add_widget(LegalScreen(name='legal'))
@@ -936,7 +997,7 @@ def show_error_popup(error_msg):
         content.add_widget(scroll)
         btn = Button(text='Закрыть приложение', size_hint_y=None, height=50, background_color=(0.8, 0.2, 0.2, 1))
         content.add_widget(btn)
-        popup = Popup(title='💥 ОШИБКА TITAN PRO', content=content, size_hint=(0.95, 0.8), auto_dismiss=False)
+        popup = Popup(title=' ОШИБКА TITAN PRO', content=content, size_hint=(0.95, 0.8), auto_dismiss=False)
         btn.bind(on_press=lambda x: (popup.dismiss(), sys.exit(1)))
         popup.open()
     except: pass
