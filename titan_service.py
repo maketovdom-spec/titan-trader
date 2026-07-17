@@ -1,5 +1,4 @@
 import logging
-
 logger = logging.getLogger("TITAN_SERVICE")
 SERVICE_RUNNING = False
 
@@ -7,6 +6,7 @@ def start_service():
     global SERVICE_RUNNING
     if SERVICE_RUNNING:
         return True
+    
     try:
         from jnius import autoclass
         PythonActivity = autoclass('org.kivy.android.PythonActivity')
@@ -17,10 +17,10 @@ def start_service():
         power_manager = activity.getSystemService(Context.POWER_SERVICE)
         
         wake_lock = power_manager.newWakeLock(
-            PowerManager.PARTIAL_WAKE_LOCK, 
-            "TITAN::WakeLock"
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "TITAN:WakeLock"
         )
-        wake_lock.acquire(10 * 60 * 60 * 1000)
+        wake_lock.acquire(10 * 60 * 60 * 1000)  # 10 часов
         
         SERVICE_RUNNING = True
         logger.info("✅ Wake Lock активирован")
@@ -33,6 +33,7 @@ def stop_service():
     global SERVICE_RUNNING
     if not SERVICE_RUNNING:
         return True
+    
     try:
         SERVICE_RUNNING = False
         logger.info("✅ Wake Lock освобождён")
