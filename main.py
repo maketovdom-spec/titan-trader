@@ -33,6 +33,11 @@ from kivy.clock import Clock
 from kivy.metrics import dp
 
 # ============================================================================
+# ИСПРАВЛЕНИЕ 1: Глобальный logger объявлен ДО любого использования
+# ============================================================================
+logger = logging.getLogger("TITAN_PRO")
+
+# ============================================================================
 # ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ (будут инициализированы в App.build())
 # ============================================================================
 LOG_DIR = None
@@ -80,7 +85,6 @@ PRESETS = {
     "АГРЕССИВНЫЙ": {'iq_threshold': 3.0, 'max_lots': 100, 'max_open_positions': 10, 'assets': {"SBER": True, "GAZP": True, "GOLD": True, "Si": True, "CNY": True}}
 }
 
-# Константы для математики
 DAILY_LIMIT_PCT = 3.5
 MARGIN_FACTOR = 0.15
 MAX_SPREAD_LIMIT = 0.0006
@@ -90,7 +94,7 @@ VOL_BREATH_THRESHOLD = 0.4
 DIANA_TIGHT_TRAIL = 0.0015
 
 # ============================================================================
-# 2. ФУНКЦИИ ИНИЦИАЛИЗАЦИИ (вызываются после создания App)
+# 2. ФУНКЦИИ ИНИЦИАЛИЗАЦИИ
 # ============================================================================
 def init_paths(app):
     global LOG_DIR, LOG_FILE, LICENSE_FILE, USER_DATA_FILE, LEGAL_ACCEPTED_FILE, SETTINGS_FILE
@@ -107,7 +111,6 @@ def setup_logging():
         LOG_DIR = os.getcwd()
         LOG_FILE = os.path.join(LOG_DIR, "titan_crash.log")
     
-    # Очищаем старые handlers
     root_logger = logging.getLogger()
     root_logger.handlers = []
     
@@ -319,7 +322,7 @@ class TickRingBuffer:
         return count
 
 # ============================================================================
-# 9. TITAN MONOLITH CORE (ПОЛНАЯ МАТЕМАТИКА + RETRY)
+# 9. TITAN MONOLITH CORE
 # ============================================================================
 BASE_ASSETS = ["SBER", "GAZP", "GOLD", "Si", "CNY"]
 moscow_tz = pytz.timezone('Europe/Moscow')
@@ -517,7 +520,7 @@ class TitanAbsoluteMonolith:
             p = plist.get(ticker)
             if not p: return
         
-        logger.info(f" ЗАКРЫТИЕ: {ticker} ({reason}) @ {price} | PnL: {prof:.2f}%")
+        logger.info(f"🚪 ЗАКРЫТИЕ: {ticker} ({reason}) @ {price} | PnL: {prof:.2f}%")
         
         spec = self.ASSET_PARAMS.get(ticker, self.ASSET_PARAMS["DEFAULT"])
         if spec["type"] == "FUT":
@@ -687,7 +690,7 @@ class TitanAbsoluteMonolith:
                     "comm_paid": 0.0, "entry_iq_real": final_iq, "peak_iq": final_iq, "max_prof": 0.0
                 }
                 active_pos[ticker] = pos
-                logger.info(f" ОТКРЫТА: {ticker} ({side}) {lot} лотов @ {price} | IQ: {final_iq:.2f} | Slippage: {expected_slippage:.4f}")
+                logger.info(f"🚀 ОТКРЫТА: {ticker} ({side}) {lot} лотов @ {price} | IQ: {final_iq:.2f} | Slippage: {expected_slippage:.4f}")
         
         if need_exit: 
             await self.exit_trade(ticker, exit_price, exit_reason, exit_prof)
@@ -911,7 +914,7 @@ class DashboardScreen(Screen):
             self.info_label.text = "Торговля приостановлена."
 
 # ============================================================================
-# 11. APP & ЗАПУСК
+# 11. APP & ЗАПУСК (ИСПРАВЛЕНИЯ 2 и 3 ЗДЕСЬ)
 # ============================================================================
 class TITANProApp(App):
     def __init__(self, **kwargs):
@@ -921,23 +924,17 @@ class TITANProApp(App):
         self._loop_thread = None
 
     def build(self):
-        global LOG_DIR, IS_LICENSED, DEVICE_ID
+        global LOG_DIR
         
-        # Инициализация путей и логирования
+        # 1. Сначала пути и логирование (безопасно)
         init_paths(self)
         setup_logging()
+        logger.info("✅ Пути и логирование инициализированы")
         
-        # Инициализация Device ID и лицензии
-        get_device_id()
-        IS_LICENSED = check_license_status()
-        
-        # Инициализация Wake Lock
-        init_wake_lock()
-        
-        # Создание бота
+        # 2. Создание бота
         self.bot = TitanAbsoluteMonolith()
         
-        # Настройка UI
+        # 3. Настройка UI
         Window.clearcolor = (0.1, 0.1, 0.15, 1)
         
         sm = ScreenManager()
@@ -961,17 +958,42 @@ class TITANProApp(App):
             Clock.schedule_once(self.start_bot, 0.5)
         return sm
 
+    def on_start(self):
+        """ИСПРАВЛЕНИЕ 2: Android-специфичные вызовы перенесены сюда, когда Kivy полностью готов"""
+        try:
+            logger.info("🔄 Инициализация Android-специфичных функций...")
+            get_device_id()
+            init_wake_lock()
+            
+            global IS_LICENSED
+            IS_LICENSED = check_license_status()
+            logger.info(f"✅ Android инициализирован. Лицензия активна: {IS_LICENSED}")
+            
+        except Exception as e:
+            logger.error(f"⚠️ Ошибка инициализации Android: {e}", exc_info=True)
+
     def start_bot(self, dt):
         def run_loop():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(self.async_main())
+            
+            # ИСПРАВЛЕНИЕ 3: Сохраняем ссылку на цикл ДО его запуска
+            self.bot._loop = loop  
+            
+            try:
+                loop.run_until_complete(self.async_main())
+            finally:
+                try:
+                    loop.close()
+                except:
+                    pass
+                    
         self._loop_thread = threading.Thread(target=run_loop, daemon=True)
         self._loop_thread.start()
         logger.info("✅ Асинхронный поток запущен")
 
     async def async_main(self):
-        self.bot._loop = asyncio.get_running_loop()
+        # Убрали self.bot._loop = asyncio.get_running_loop(), так как loop уже назначен выше
         await self.bot.start()
         await asyncio.gather(
             ws_market_data_feed(self.bot),
