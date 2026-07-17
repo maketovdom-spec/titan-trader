@@ -33,19 +33,83 @@ from kivy.clock import Clock
 from kivy.metrics import dp
 
 # ============================================================================
-# 0. ШТАТНОЕ ЛОГИРОВАНИЕ
+# ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ (будут инициализированы в App.build())
 # ============================================================================
-LOG_DIR = None  # Будет установлен в App
+LOG_DIR = None
 LOG_FILE = None
+LICENSE_FILE = None
+USER_DATA_FILE = None
+LEGAL_ACCEPTED_FILE = None
+SETTINGS_FILE = None
+DEVICE_ID = "UNKNOWN"
+IS_LICENSED = False
+
+# ============================================================================
+# 1. КОНСТАНТЫ И НАСТРОЙКИ
+# ============================================================================
+LICENSE_SECRET = "TITAN_NEVINNOMYSSK_2026_SECRET_KEY"
+
+LEGAL_TEXT = """
+ПОЛЬЗОВАТЕЛЬСКОЕ СОГЛАШЕНИЕ TITAN PRO
+
+1. ОБЩИЕ ПОЛОЖЕНИЯ
+Программа является техническим инструментом для автоматизации торговли. 
+НЕ является инвестиционной рекомендацией или доверительным управлением.
+
+2. ОТКАЗ ОТ ОТВЕТСТВЕННОСТИ
+Программа предоставляется "как есть". Разработчик не несёт ответственности 
+за убытки, возникшие в результате использования.
+
+3. РИСКИ
+Торговля на финансовых рынках сопряжена с высокими рисками. 
+Пользователь несёт полную ответственность за свои решения и настройки.
+
+4. ЛИЦЕНЗИРОВАНИЕ
+Лицензия привязана к Device ID. Запрещена передача третьим лицам.
+
+5. КОНФИДЕНЦИАЛЬНОСТЬ
+API-токены и данные кошельков шифруются и хранятся локально на устройстве. 
+Разработчик не имеет к ним доступа.
+
+НАЖИМАЯ "ПРИНЯТЬ", ВЫ ПОДТВЕРЖДАЕТЕ СОГЛАСИЕ С УСЛОВИЯМИ.
+"""
+
+PRESETS = {
+    "КОНСЕРВАТИВНЫЙ": {'iq_threshold': 8.5, 'max_lots': 5, 'max_open_positions': 3, 'assets': {"SBER": True, "GOLD": True, "GAZP": False, "Si": False, "CNY": False}},
+    "УМЕРЕННЫЙ": {'iq_threshold': 6.0, 'max_lots': 20, 'max_open_positions': 5, 'assets': {"SBER": True, "GAZP": True, "GOLD": True, "Si": True, "CNY": True}},
+    "АГРЕССИВНЫЙ": {'iq_threshold': 3.0, 'max_lots': 100, 'max_open_positions': 10, 'assets': {"SBER": True, "GAZP": True, "GOLD": True, "Si": True, "CNY": True}}
+}
+
+# Константы для математики
+DAILY_LIMIT_PCT = 3.5
+MARGIN_FACTOR = 0.15
+MAX_SPREAD_LIMIT = 0.0006
+IQ_STOCKS_THRESHOLD = 7.0
+IQ_FUTURES_THRESHOLD = 3.0
+VOL_BREATH_THRESHOLD = 0.4
+DIANA_TIGHT_TRAIL = 0.0015
+
+# ============================================================================
+# 2. ФУНКЦИИ ИНИЦИАЛИЗАЦИИ (вызываются после создания App)
+# ============================================================================
+def init_paths(app):
+    global LOG_DIR, LOG_FILE, LICENSE_FILE, USER_DATA_FILE, LEGAL_ACCEPTED_FILE, SETTINGS_FILE
+    LOG_DIR = app.user_data_dir
+    LOG_FILE = os.path.join(LOG_DIR, "titan_crash.log")
+    LICENSE_FILE = os.path.join(LOG_DIR, "titan_license.key")
+    USER_DATA_FILE = os.path.join(LOG_DIR, "titan_user_data.enc")
+    LEGAL_ACCEPTED_FILE = os.path.join(LOG_DIR, "legal_accepted.json")
+    SETTINGS_FILE = os.path.join(LOG_DIR, "titan_settings.json")
 
 def setup_logging():
     global LOG_DIR, LOG_FILE
     if LOG_DIR is None:
-        try:
-            LOG_DIR = App.get_running_app().user_data_dir if App.get_running_app() else os.getcwd()
-        except:
-            LOG_DIR = os.getcwd()
-    LOG_FILE = os.path.join(LOG_DIR, "titan_crash.log")
+        LOG_DIR = os.getcwd()
+        LOG_FILE = os.path.join(LOG_DIR, "titan_crash.log")
+    
+    # Очищаем старые handlers
+    root_logger = logging.getLogger()
+    root_logger.handlers = []
     
     logging.basicConfig(
         level=logging.INFO,
@@ -56,28 +120,28 @@ def setup_logging():
         ]
     )
 
-setup_logging()
-logger = logging.getLogger("TITAN_PRO")
-
 # ============================================================================
-# 1. ANDROID WAKE LOCK & SERVICE
+# 3. ANDROID WAKE LOCK & SERVICE
 # ============================================================================
 HAS_ANDROID_WAKELOCK = False
 wake_lock = None
-try:
-    from jnius import autoclass
-    PythonActivity = autoclass('org.kivy.android.PythonActivity')
-    Context = autoclass('android.content.Context')
-    PowerManager = autoclass('android.os.PowerManager')
-    
-    activity = PythonActivity.mActivity
-    if activity is not None:
-        power_manager = activity.getSystemService(Context.POWER_SERVICE)
-        wake_lock = power_manager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TITAN:TradingLock")
-        HAS_ANDROID_WAKELOCK = True
-        logger.info("✅ Android WakeLock инициализирован")
-except Exception as e:
-    logger.warning(f"⚠️ WakeLock не инициализирован: {e}")
+
+def init_wake_lock():
+    global HAS_ANDROID_WAKELOCK, wake_lock
+    try:
+        from jnius import autoclass
+        PythonActivity = autoclass('org.kivy.android.PythonActivity')
+        Context = autoclass('android.content.Context')
+        PowerManager = autoclass('android.os.PowerManager')
+        
+        activity = PythonActivity.mActivity
+        if activity is not None:
+            power_manager = activity.getSystemService(Context.POWER_SERVICE)
+            wake_lock = power_manager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TITAN:TradingLock")
+            HAS_ANDROID_WAKELOCK = True
+            logger.info("✅ Android WakeLock инициализирован")
+    except Exception as e:
+        logger.warning(f"⚠️ WakeLock не инициализирован: {e}")
 
 def start_foreground_service():
     try:
@@ -87,39 +151,28 @@ def start_foreground_service():
         logger.warning("⚠️ titan_service.py не найден")
 
 # ============================================================================
-# 2. DEVICE ID & ЗАЩИТА
+# 4. DEVICE ID & ЗАЩИТА
 # ============================================================================
-DEVICE_ID = "UNKNOWN"
-try:
-    from jnius import autoclass
-    Settings = autoclass('android.provider.Settings$Secure')
-    PythonActivity = autoclass('org.kivy.android.PythonActivity')
-    activity = PythonActivity.mActivity
-    if activity is None:
-        raise Exception("PythonActivity.mActivity is None")
-    
-    content_resolver = activity.getContentResolver()
-    android_id = Settings.Secure.getString(content_resolver, Settings.Secure.ANDROID_ID)
-    DEVICE_ID = hashlib.sha256(android_id.encode()).hexdigest()[:16]
-    logger.info(f"✅ Device ID получен: {DEVICE_ID}")
-except Exception as e:
-    logger.warning(f"⚠️ Не удалось получить Device ID: {e}")
-    DEVICE_ID = "FALLBACK_" + hashlib.sha256(str(time.time()).encode()).hexdigest()[:16]
-
-LICENSE_SECRET = "TITAN_NEVINNOMYSSK_2026_SECRET_KEY"
-LICENSE_FILE = None
-USER_DATA_FILE = None
-
-def get_file_paths():
-    global LICENSE_FILE, USER_DATA_FILE
-    if LICENSE_FILE is None:
-        LICENSE_FILE = os.path.join(LOG_DIR, "titan_license.key")
-        USER_DATA_FILE = os.path.join(LOG_DIR, "titan_user_data.enc")
-
-get_file_paths()
+def get_device_id():
+    global DEVICE_ID
+    try:
+        from jnius import autoclass
+        Settings = autoclass('android.provider.Settings$Secure')
+        PythonActivity = autoclass('org.kivy.android.PythonActivity')
+        activity = PythonActivity.mActivity
+        if activity is None:
+            raise Exception("PythonActivity.mActivity is None")
+        
+        content_resolver = activity.getContentResolver()
+        android_id = Settings.Secure.getString(content_resolver, Settings.Secure.ANDROID_ID)
+        DEVICE_ID = hashlib.sha256(android_id.encode()).hexdigest()[:16]
+        logger.info(f"✅ Device ID получен: {DEVICE_ID}")
+    except Exception as e:
+        logger.warning(f"⚠️ Не удалось получить Device ID: {e}")
+        DEVICE_ID = "FALLBACK_" + hashlib.sha256(str(time.time()).encode()).hexdigest()[:16]
 
 def check_license_status() -> bool:
-    if os.path.exists(LICENSE_FILE):
+    if LICENSE_FILE and os.path.exists(LICENSE_FILE):
         try:
             with open(LICENSE_FILE, 'r', encoding='utf-8') as f:
                 stored_key = f.read().strip()
@@ -131,10 +184,8 @@ def check_license_status() -> bool:
             logger.error(f"Ошибка чтения лицензии: {e}")
     return False
 
-IS_LICENSED = check_license_status()
-
 # ============================================================================
-# 3. ШИФРОВАНИЕ И СОХРАНЕНИЕ ДАННЫХ КЛИЕНТА
+# 5. ШИФРОВАНИЕ И СОХРАНЕНИЕ ДАННЫХ КЛИЕНТА
 # ============================================================================
 def encrypt_user_data(data_dict: dict) -> bytes:
     json_str = json.dumps(data_dict)
@@ -162,52 +213,16 @@ def save_user_credentials(token: str, fut: str, stk: str, fx: str):
     logger.info("✅ Данные клиента сохранены и зашифрованы")
 
 def load_user_credentials() -> dict:
-    if os.path.exists(USER_DATA_FILE):
+    if USER_DATA_FILE and os.path.exists(USER_DATA_FILE):
         with open(USER_DATA_FILE, 'rb') as f:
             return decrypt_user_data(f.read())
     return {"token": "", "fut": "7502Y5H", "stk": "D101327", "fx": "G68390"}
 
 # ============================================================================
-# 4. ЮРИДИЧЕСКИЕ ФАЙЛЫ & НАСТРОЙКИ РИСКА
+# 6. ЮРИДИЧЕСКИЕ ФАЙЛЫ & НАСТРОЙКИ РИСКА
 # ============================================================================
-LEGAL_ACCEPTED_FILE = None
-SETTINGS_FILE = None
-
-def get_settings_paths():
-    global LEGAL_ACCEPTED_FILE, SETTINGS_FILE
-    if LEGAL_ACCEPTED_FILE is None:
-        LEGAL_ACCEPTED_FILE = os.path.join(LOG_DIR, "legal_accepted.json")
-        SETTINGS_FILE = os.path.join(LOG_DIR, "titan_settings.json")
-
-get_settings_paths()
-
-LEGAL_TEXT = """
-ПОЛЬЗОВАТЕЛЬСКОЕ СОГЛАШЕНИЕ TITAN PRO
-
-1. ОБЩИЕ ПОЛОЖЕНИЯ
-Программа является техническим инструментом для автоматизации торговли. 
-НЕ является инвестиционной рекомендацией или доверительным управлением.
-
-2. ОТКАЗ ОТ ОТВЕТСТВЕННОСТИ
-Программа предоставляется "как есть". Разработчик не несёт ответственности 
-за убытки, возникшие в результате использования.
-
-3. РИСКИ
-Торговля на финансовых рынках сопряжена с высокими рисками. 
-Пользователь несёт полную ответственность за свои решения и настройки.
-
-4. ЛИЦЕНЗИРОВАНИЕ
-Лицензия привязана к Device ID. Запрещена передача третьим лицам.
-
-5. КОНФИДЕНЦИАЛЬНОСТЬ
-API-токены и данные кошельков шифруются и хранятся локально на устройстве. 
-Разработчик не имеет к ним доступа.
-
-НАЖИМАЯ "ПРИНЯТЬ", ВЫ ПОДТВЕРЖДАЕТЕ СОГЛАСИЕ С УСЛОВИЯМИ.
-"""
-
 def is_legal_accepted() -> bool:
-    if os.path.exists(LEGAL_ACCEPTED_FILE):
+    if LEGAL_ACCEPTED_FILE and os.path.exists(LEGAL_ACCEPTED_FILE):
         try:
             with open(LEGAL_ACCEPTED_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
@@ -221,14 +236,8 @@ def accept_legal():
         json.dump({'accepted': True, 'timestamp': dt.now().isoformat(), 'version': '1.0'}, f)
     logger.info("✅ Пользователь принял условия соглашения")
 
-PRESETS = {
-    "КОНСЕРВАТИВНЫЙ": {'iq_threshold': 8.5, 'max_lots': 5, 'max_open_positions': 3, 'assets': {"SBER": True, "GOLD": True, "GAZP": False, "Si": False, "CNY": False}},
-    "УМЕРЕННЫЙ": {'iq_threshold': 6.0, 'max_lots': 20, 'max_open_positions': 5, 'assets': {"SBER": True, "GAZP": True, "GOLD": True, "Si": True, "CNY": True}},
-    "АГРЕССИВНЫЙ": {'iq_threshold': 3.0, 'max_lots': 100, 'max_open_positions': 10, 'assets': {"SBER": True, "GAZP": True, "GOLD": True, "Si": True, "CNY": True}}
-}
-
 def load_risk_settings():
-    if os.path.exists(SETTINGS_FILE):
+    if SETTINGS_FILE and os.path.exists(SETTINGS_FILE):
         try:
             with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
@@ -240,7 +249,7 @@ def save_risk_settings(settings):
         json.dump(settings, f)
 
 # ============================================================================
-# 5. ASYNC-SAFE SQLITE ОЧЕРЕДЬ С RETRY
+# 7. ASYNC-SAFE SQLITE ОЧЕРЕДЬ С RETRY
 # ============================================================================
 class OrderQueue:
     def __init__(self, db_path: str):
@@ -283,7 +292,7 @@ class OrderQueue:
             pass
 
 # ============================================================================
-# 6. RING BUFFER
+# 8. RING BUFFER
 # ============================================================================
 class TickRingBuffer:
     def __init__(self, size=1024):
@@ -310,20 +319,10 @@ class TickRingBuffer:
         return count
 
 # ============================================================================
-# 7. TITAN MONOLITH CORE (ПОЛНАЯ МАТЕМАТИКА + RETRY)
+# 9. TITAN MONOLITH CORE (ПОЛНАЯ МАТЕМАТИКА + RETRY)
 # ============================================================================
 BASE_ASSETS = ["SBER", "GAZP", "GOLD", "Si", "CNY"]
 moscow_tz = pytz.timezone('Europe/Moscow')
-Window.clearcolor = (0.1, 0.1, 0.15, 1)
-
-# Константы для продвинутой математики
-DAILY_LIMIT_PCT = 3.5
-MARGIN_FACTOR = 0.15
-MAX_SPREAD_LIMIT = 0.0006
-IQ_STOCKS_THRESHOLD = 7.0
-IQ_FUTURES_THRESHOLD = 3.0
-VOL_BREATH_THRESHOLD = 0.4
-DIANA_TIGHT_TRAIL = 0.0015
 
 class TitanAbsoluteMonolith:
     ASSET_PARAMS = {
@@ -341,7 +340,6 @@ class TitanAbsoluteMonolith:
                      "trade_history": [], "search_active": False}
         self._data_lock = asyncio.Lock()
         
-        # === ПРОДВИНУТАЯ МАТЕМАТИКА СТАКАНА ===
         self.tick_buffers = {t: TickRingBuffer(1024) for t in BASE_ASSETS}
         self.level_eff_volumes = {t: {'bid': [0.0]*5, 'ask': [0.0]*5} for t in BASE_ASSETS}
         self.level_last_update = {t: {'bid': [0.0]*5, 'ask': [0.0]*5} for t in BASE_ASSETS}
@@ -363,7 +361,6 @@ class TitanAbsoluteMonolith:
         self.iq_history = {t: [] for t in BASE_ASSETS}
         self.range_history = {t: [] for t in BASE_ASSETS}
         self.last_tick_price = {t: 0.0 for t in BASE_ASSETS}
-        # ========================================
         
         self.jwt, self.jwt_expiry = "", 0
         self._jwt_lock = asyncio.Lock()
@@ -384,7 +381,6 @@ class TitanAbsoluteMonolith:
             self.runtime_settings = new_settings
         logger.info(f"⚙️ Настройки риск-профиля обновлены: {new_settings.get('profile')}")
 
-    # === RETRY-ЛОГИКА ДЛЯ API ===
     async def safe_get(self, url: str, retries: int = 3) -> Optional[dict]:
         for attempt in range(retries):
             try:
@@ -412,7 +408,7 @@ class TitanAbsoluteMonolith:
                 creds = load_user_credentials()
                 token = creds.get("token", "")
                 if not token:
-                    logger.warning("️ Токен не найден. Введите его в настройках.")
+                    logger.warning("⚠️ Токен не найден. Введите его в настройках.")
                     return False
                 
                 url = f"https://oauth.alor.ru/refresh?token={token}"
@@ -438,7 +434,6 @@ class TitanAbsoluteMonolith:
         if self._http and not self._http.closed:
             await self._http.close()
 
-    # === ВОССТАНОВЛЕННЫЕ МАТЕМАТИЧЕСКИЕ МЕТОДЫ ===
     def _update_ema_stats(self, stats_dict, value, alpha):
         diff = value - stats_dict['mean']
         stats_dict['mean'] += alpha * diff
@@ -472,7 +467,6 @@ class TitanAbsoluteMonolith:
     def analyze_book(self, ticker: str, bids: list, asks: list, now: float) -> Optional[dict]:
         if not bids or not asks: return None
         
-        # 1. Расчет текущей частоты тиков и адаптивного затухания (lam)
         current_rate = self.tick_buffers[ticker].count_recent(5.0, now) / 5.0
         self.base_tick_rate[ticker] = 0.9 * self.base_tick_rate[ticker] + 0.1 * current_rate
         tau_base = 3.0
@@ -482,7 +476,6 @@ class TitanAbsoluteMonolith:
         
         eff_bid_vol, eff_ask_vol = 0.0, 0.0
         
-        # 2. Экспоненциальное затухание объемов по 5 уровням стакана
         for i in range(5):
             if i < len(bids):
                 dt_time = now - self.level_last_update[ticker]['bid'][i]
@@ -524,7 +517,7 @@ class TitanAbsoluteMonolith:
             p = plist.get(ticker)
             if not p: return
         
-        logger.info(f"🚪 ЗАКРЫТИЕ: {ticker} ({reason}) @ {price} | PnL: {prof:.2f}%")
+        logger.info(f" ЗАКРЫТИЕ: {ticker} ({reason}) @ {price} | PnL: {prof:.2f}%")
         
         spec = self.ASSET_PARAMS.get(ticker, self.ASSET_PARAMS["DEFAULT"])
         if spec["type"] == "FUT":
@@ -551,7 +544,6 @@ class TitanAbsoluteMonolith:
     async def process_tick(self, ticker: str, price: float, book: dict):
         now = time.monotonic()
         
-        # Безопасное чтение настроек
         with self.settings_lock:
             current_iq_threshold = self.runtime_settings['iq_threshold']
             current_max_lots = self.runtime_settings['max_lots']
@@ -568,7 +560,6 @@ class TitanAbsoluteMonolith:
         bids, asks = book.get('bids', []), book.get('asks', [])
         if not bids or not asks: return
         
-        # Расчет спреда и обновление статистики
         current_spread = (asks[0]['price'] - bids[0]['price']) / max(bids[0]['price'], 0.001)
         prev_p = self.last_tick_price[ticker]
         price_change = abs(price - prev_p) if prev_p > 0 else 0.0
@@ -592,7 +583,6 @@ class TitanAbsoluteMonolith:
         mkt = "FUT" if is_fut else ("FX" if is_fx else "STK")
         spec = self.ASSET_PARAMS.get(ticker, self.ASSET_PARAMS["DEFAULT"])
 
-        # === ГЕНИАЛЬНЫЙ РАСЧЁТ IQ ===
         tick_rate = self.tick_buffers[ticker].count_recent(5.0, now) / 5.0
         tick_factor = math.tanh(tick_rate / 15.0)
         static_iq = snap["static_iq"]
@@ -610,7 +600,6 @@ class TitanAbsoluteMonolith:
         book_delta = snap["bid_power"] - snap["ask_power"]
         delta_ratio = abs(price_delta) / current_spread if current_spread > 0 else 0
         
-        # Коэффициент истинности движения (c_truth)
         if (price_delta > 0 and book_delta > 0) or (price_delta < 0 and book_delta < 0):
             c_truth = min(1.2, 1.0 + 0.2 * delta_ratio)
         elif price_delta != 0: 
@@ -632,7 +621,6 @@ class TitanAbsoluteMonolith:
         iqh = self.iq_history[ticker]
         iqh.append(final_iq)
         if len(iqh) > 15: iqh.pop(0)
-        # ===========================
 
         need_exit, exit_price, exit_reason, exit_prof = False, 0.0, "", 0.0
         
@@ -646,14 +634,11 @@ class TitanAbsoluteMonolith:
                 hold_time = (dt.now(self.tz) - dt.fromtimestamp(p.get("entry_time", time.time()), self.tz)).seconds
                 
                 exit_condition = False
-                # 1. Отскок от стены
                 if p["side"] == "BUY" and snap["ask_wall"] > 0 and price < snap["ask_wall"] and final_iq < 0.8:
                     exit_reason, exit_prof, exit_condition = "WALL-REJECTION", prof, True
-                # 2. Разворот против позиции
                 cr = spec.get("comm_buffer", 0.0005)
                 if not exit_condition and final_iq < 1.0 and prof < -(cr * 1.5):
                     exit_reason, exit_prof, exit_condition = "REVERSAL-EXIT", prof, True
-                # 3. Динамический выход по падению IQ
                 if not exit_condition:
                     hold_mult = 0.50 if hold_time < 15 else (0.80 if prof < 0.0015 else 0.60)
                     if final_iq <= p.get("entry_iq_real", 3.0) * hold_mult:
@@ -662,13 +647,11 @@ class TitanAbsoluteMonolith:
                 if exit_condition: 
                     need_exit, exit_price = True, price
                     
-                # 4. Трейлинг-стоп (Diana Tight Trail)
                 if not need_exit and prof > 0.003:
                     tr = p["p"] + (p["p"] * DIANA_TIGHT_TRAIL) if p["side"] == "BUY" else p["p"] - (p["p"] * DIANA_TIGHT_TRAIL)
                     if (price > tr and p["side"] == "BUY") or (price < tr and p["side"] == "SELL"): 
                         p["p"] = tr
             else:
-                # ЛОГИКА ОТКРЫТИЯ ПОЗИЦИИ
                 if not self.data.get("search_active", False): return
                 if active_limits.get(mkt, 0) <= 0: return
                 if not self.check_volatility(ticker, price): return
@@ -744,7 +727,7 @@ async def ws_market_data_feed(bot: TitanAbsoluteMonolith):
             retry_count += 1
 
 # ============================================================================
-# 8. UI ЭКРАНЫ
+# 10. UI ЭКРАНЫ
 # ============================================================================
 class LegalScreen(Screen):
     def __init__(self, **kwargs):
@@ -928,21 +911,34 @@ class DashboardScreen(Screen):
             self.info_label.text = "Торговля приостановлена."
 
 # ============================================================================
-# 9. APP & ЗАПУСК
+# 11. APP & ЗАПУСК
 # ============================================================================
 class TITANProApp(App):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.title = "TITAN Pro"
-        self.bot = TitanAbsoluteMonolith()
+        self.bot = None
         self._loop_thread = None
 
     def build(self):
-        global LOG_DIR
-        LOG_DIR = self.user_data_dir
-        get_file_paths()
-        get_settings_paths()
+        global LOG_DIR, IS_LICENSED, DEVICE_ID
+        
+        # Инициализация путей и логирования
+        init_paths(self)
         setup_logging()
+        
+        # Инициализация Device ID и лицензии
+        get_device_id()
+        IS_LICENSED = check_license_status()
+        
+        # Инициализация Wake Lock
+        init_wake_lock()
+        
+        # Создание бота
+        self.bot = TitanAbsoluteMonolith()
+        
+        # Настройка UI
+        Window.clearcolor = (0.1, 0.1, 0.15, 1)
         
         sm = ScreenManager()
         if not is_legal_accepted():
@@ -997,7 +993,7 @@ def show_error_popup(error_msg):
         content.add_widget(scroll)
         btn = Button(text='Закрыть приложение', size_hint_y=None, height=50, background_color=(0.8, 0.2, 0.2, 1))
         content.add_widget(btn)
-        popup = Popup(title=' ОШИБКА TITAN PRO', content=content, size_hint=(0.95, 0.8), auto_dismiss=False)
+        popup = Popup(title='💥 ОШИБКА TITAN PRO', content=content, size_hint=(0.95, 0.8), auto_dismiss=False)
         btn.bind(on_press=lambda x: (popup.dismiss(), sys.exit(1)))
         popup.open()
     except: pass
@@ -1007,6 +1003,8 @@ if __name__ == '__main__':
         TITANProApp().run()
     except Exception as e:
         error_txt = f"{traceback.format_exc()}"
-        logger.critical(error_txt)
+        if LOG_FILE:
+            with open(LOG_FILE, 'a', encoding='utf-8') as f:
+                f.write(f"\nCRITICAL ERROR:\n{error_txt}\n")
         show_error_popup(error_txt)
         sys.exit(1)
