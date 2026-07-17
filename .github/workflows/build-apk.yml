@@ -61,6 +61,10 @@ jobs:
           echo "❌ main.py not found!"
           exit 1
         fi
+        if [ ! -f "titan_service.py" ]; then
+          echo " titan_service.py not found!"
+          exit 1
+        fi
 
     - name: Create debug keystore
       run: |
@@ -79,7 +83,7 @@ jobs:
         source.include_exts = py,png,jpg,kv,atlas,json
         version = 1.0.0
         
-        requirements = python3,kivy,aiohttp==3.9.0,pytz,async_timeout,certifi,pyjnius,sqlite3,openssl
+        requirements = python3,kivy,aiohttp==3.9.0,pytz,async_timeout,certifi,pyjnius,openssl,sqlite3
         
         android.permissions = INTERNET,ACCESS_NETWORK_STATE,WAKE_LOCK
         
@@ -132,7 +136,7 @@ jobs:
           echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
           echo "✅ APK found: $APK_PATH"
         else
-          echo "❌ APK not found"
+          echo " APK not found"
           exit 1
         fi
 
