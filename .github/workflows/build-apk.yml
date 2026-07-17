@@ -1,90 +1,160 @@
-# ============================================================================
-# 11. APP & ЗАПУСК (ИСПРАВЛЕННАЯ ВЕРСИЯ)
-# ============================================================================
-class TITANProApp(App):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.title = "TITAN Pro"
-        self.bot = TitanAbsoluteMonolith()
-        self._loop_thread = None
+name: Build TITAN Pro Client APK
 
-    def build(self):
-        global LOG_DIR
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 240
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Free disk space
+      run: |
+        sudo apt-get clean
+        sudo rm -rf /usr/share/dotnet /opt/ghc
+        df -h
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential git ffmpeg wget ccache \
+          libsdl2-dev libsdl2-image-dev \
+          libsdl2-mixer-dev libsdl2-ttf-dev \
+          libportmidi-dev libswscale-dev \
+          libavformat-dev libavcodec-dev \
+          zlib1g-dev libgstreamer1.0-0 \
+          gstreamer1.0-plugins-base \
+          gstreamer1.0-plugins-good \
+          autoconf libtool libtool-bin pkg-config \
+          unzip cmake libffi-dev \
+          python3-dev automake \
+          libssl-dev lld clang
+
+    - name: Install Python build tools
+      run: |
+        python -m pip install --upgrade pip
+        pip install "buildozer==1.5.0" "python-for-android==2024.01.21"
+        pip install "cython>=3.0" "setuptools>=65.0.0,<70.0.0" wheel
+        pip install "Jinja2<3.1" "MarkupSafe<2.1"
+
+    - name: Verify main script exists
+      run: |
+        if [ ! -f "main.py" ]; then
+          echo "❌ main.py not found!"
+          exit 1
+        fi
+        if [ ! -f "titan_service.py" ]; then
+          echo "❌ titan_service.py not found!"
+          exit 1
+        fi
+
+    - name: Create debug keystore
+      run: |
+        mkdir -p ~/.android
+        keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US"
+
+    - name: Create buildozer.spec
+      run: |
+        cat > buildozer.spec << 'EOF'
+        [app]
+        title = TITAN Pro
+        package.name = titanpro
+        package.domain = org.titan.pro
+        source.dir = .
+        source.main = main.py
+        source.include_exts = py,png,jpg,kv,atlas,json
+        version = 1.0.0
         
-        # 1. Сначала пути и логирование
-        init_paths(self)
-        setup_logging()
-        logger.info("✅ Пути и логирование инициализированы")
+        requirements = python3,kivy,aiohttp==3.9.0,pytz,async_timeout,certifi,pyjnius,openssl,sqlite3
         
-        # 2. Настройка UI (БЕЗ вызова jnius здесь!)
-        Window.clearcolor = (0.1, 0.1, 0.15, 1)
+        android.permissions = INTERNET,ACCESS_NETWORK_STATE,WAKE_LOCK
         
-        sm = ScreenManager()
-        if not is_legal_accepted():
-            sm.add_widget(LegalScreen(name='legal'))
-            sm.current = 'legal'
-        elif not os.path.exists(USER_DATA_FILE) or not load_user_credentials().get("token"):
-            sm.add_widget(CredentialsScreen(name='credentials'))
-            sm.current = 'credentials'
-        elif not os.path.exists(SETTINGS_FILE):
-            sm.add_widget(RiskProfileScreen(name='risk_profile'))
-            sm.current = 'risk_profile'
-        else:
-            dash = DashboardScreen(name='dashboard')
-            dash.bot = self.bot
-            sm.add_widget(dash)
-            sm.current = 'dashboard'
-            Clock.schedule_once(self.start_bot, 0.5)
-            
-        return sm
+        android.api = 33
+        android.minapi = 21
+        android.ndk_api = 21
+        android.ndk = 25c
+        android.accept_sdk_license = True
+        android.allow_insecure_keystore = True
+        android.archs = arm64-v8a
+        android.python_version = 3.11
+        orientation = portrait
+        fullscreen = 0
+        log_level = 2
+        warn_on_root = 0
+        android.gradle_options = -Xmx2048m
+        
+        android.meta_data = kivy.ssl_context=certifi
 
-    def on_start(self):
-        """Вызывается Kivy ПОСЛЕ полной инициализации Android-окружения"""
-        try:
-            logger.info("🔄 Инициализация Android-специфичных функций...")
-            get_device_id()
-            init_wake_lock()
-            
-            global IS_LICENSED
-            IS_LICENSED = check_license_status()
-            logger.info(f"✅ Android инициализирован. Лицензия активна: {IS_LICENSED}")
-            
-            # Если мы на экране активации, обновляем Device ID на экране
-            if hasattr(self.root, 'current') and self.root.current == 'activation':
-                # Можно добавить обновление текста на экране, если нужно
-                pass
-                
-        except Exception as e:
-            logger.error(f"⚠️ Критическая ошибка инициализации Android: {e}", exc_info=True)
+        [buildozer]
+        log_level = 1
+        warn_on_root = 0
+        EOF
 
-    def start_bot(self, dt):
-        def run_loop():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
-            # КРИТИЧЕСКИ ВАЖНО: сохраняем ссылку на цикл ДО его запуска
-            self.bot._loop = loop  
-            
-            try:
-                loop.run_until_complete(self.async_main())
-            finally:
-                try:
-                    loop.close()
-                except:
-                    pass
-                    
-        self._loop_thread = threading.Thread(target=run_loop, daemon=True)
-        self._loop_thread.start()
-        logger.info("✅ Асинхронный поток запущен")
+    - name: Cache Buildozer global directory
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.buildozer
+          .buildozer
+        key: ${{ runner.os }}-buildozer-${{ hashFiles('.github/workflows/build-apk.yml') }}
+        restore-keys: |
+          ${{ runner.os }}-buildozer-
 
-    async def async_main(self):
-        await self.bot.start()
-        await asyncio.gather(
-            ws_market_data_feed(self.bot),
-            self.bot.http_polling_loop(),
-            return_exceptions=True
-        )
+    - name: Build APK
+      env:
+        BUILDOZER_ALLOW_ROOT: "1"
+        ANDROID_SDK_ACCEPT_LICENSES: "true"
+        DEBIAN_FRONTEND: "noninteractive"
+        CI: "true"
+        BUILD_IN_CI: "true"
+        LDFLAGS: "-fuse-ld=lld"
+      run: buildozer -v android debug
 
-    def on_stop(self):
-        if self.bot:
-            logger.info("🛑 Остановка бота...")
+    - name: Find APK
+      id: find_apk
+      run: |
+        APK_PATH=$(find . -name "*.apk" -type f | head -n 1)
+        if [ -n "$APK_PATH" ]; then
+          echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
+          echo "✅ APK found: $APK_PATH"
+        else
+          echo "❌ APK not found"
+          exit 1
+        fi
+
+    - name: Upload APK as Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: TITAN-Pro-Client-APK
+        path: ${{ steps.find_apk.outputs.apk_path }}
+        retention-days: 30
+
+    - name: Upload build logs on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-logs
+        path: |
+          .buildozer/**/config.log
+          .buildozer/**/*.log
+          ~/.buildozer/**/*.log
+        if-no-files-found: ignore
+        retention-days: 7
