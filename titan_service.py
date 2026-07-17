@@ -20,7 +20,7 @@ def start_service():
             PowerManager.PARTIAL_WAKE_LOCK,
             "TITAN:WakeLock"
         )
-        wake_lock.acquire(10 * 60 * 60 * 1000)  # 10 часов
+        wake_lock.acquire(10 * 60 * 60 * 1000)
         
         SERVICE_RUNNING = True
         logger.info("✅ Wake Lock активирован")
