@@ -29,56 +29,25 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y \
-          build-essential \
-          git \
-          ffmpeg \
-          wget \
-          ccache \
-          libsdl2-dev \
-          libsdl2-image-dev \
-          libsdl2-mixer-dev \
-          libsdl2-ttf-dev \
-          libportmidi-dev \
-          libswscale-dev \
-          libavformat-dev \
-          libavcodec-dev \
-          zlib1g-dev \
-          libgstreamer1.0-0 \
-          gstreamer1.0-plugins-base \
-          gstreamer1.0-plugins-good \
-          autoconf \
-          libtool \
-          libtool-bin \
-          pkg-config \
-          unzip \
-          cmake \
-          libffi-dev \
-          python3-dev \
-          automake \
-          libssl-dev \
-          clang \
-          lld
+          build-essential git ffmpeg wget ccache \
+          libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev \
+          libportmidi-dev libswscale-dev libavformat-dev libavcodec-dev \
+          zlib1g-dev libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+          autoconf libtool libtool-bin pkg-config \
+          unzip cmake libffi-dev python3-dev automake libssl-dev lld
 
-    - name: Install buildozer and dependencies
+    - name: Install buildozer
       run: |
         pip install --upgrade pip
-        pip install buildozer==1.4.0
-        pip install python-for-android==2023.1.13
-        pip install cython==0.29.33
-        pip install setuptools>=65.0.0,<70.0.0
+        pip install --user buildozer==1.4.0 cython==0.29.33
         echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-    - name: Verify files
+    - name: Verify files and buildozer
       run: |
         which buildozer
-        if [ ! -f "buildozer.spec" ]; then echo "❌ buildozer.spec not found!"; exit 1; fi
+        if [ ! -f "buildozer.spec" ]; then echo "❌ buildozer.spec not found in root!"; exit 1; fi
         if [ ! -f "main.py" ]; then echo "❌ main.py not found!"; exit 1; fi
         if [ ! -f "titan_service.py" ]; then echo "❌ titan_service.py not found!"; exit 1; fi
-
-    - name: Create debug keystore
-      run: |
-        mkdir -p ~/.android
-        keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US"
 
     - name: Cache Buildozer global directory
       uses: actions/cache@v3
@@ -97,7 +66,6 @@ jobs:
         ANDROID_SDK_ACCEPT_LICENSES: "true"
         DEBIAN_FRONTEND: "noninteractive"
         CI: "true"
-        BUILD_IN_CI: "true"
 
     - name: Upload APK
       uses: actions/upload-artifact@v3
