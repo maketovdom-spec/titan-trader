@@ -33,9 +33,24 @@ from kivy.clock import Clock
 from kivy.metrics import dp
 
 # ============================================================================
-# 0. ГЛОБАЛЬНЫЙ ЛОГГЕР
+# 0. ГЛОБАЛЬНЫЙ ЛОГГЕР (СОЗДАЁТСЯ ДО ВСЕХ ОПЕРАЦИЙ)
 # ============================================================================
 logger = logging.getLogger("TITAN_PRO")
+logger.setLevel(logging.INFO)
+
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+logger.addHandler(console_handler)
+
+# ============================================================================
+# 1. ВЫЗОВ WAKE LOCK СЕРВИСА (ТЕПЕРЬ ЛОГГЕР СУЩЕСТВУЕТ)
+# ============================================================================
+try:
+    from titan_service import start_service
+    start_service()
+    logger.info("✅ Wake Lock сервис активирован при старте")
+except Exception as e:
+    logger.warning(f"⚠️ Не удалось активировать Wake Lock: {e}")
 
 # ============================================================================
 # ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ (будут инициализированы в App.build())
@@ -50,7 +65,7 @@ DEVICE_ID = "UNKNOWN"
 IS_LICENSED = False
 
 # ============================================================================
-# 1. КОНСТАНТЫ И НАСТРОЙКИ
+# 2. КОНСТАНТЫ И НАСТРОЙКИ
 # ============================================================================
 LICENSE_SECRET = "TITAN_NEVINNOMYSSK_2026_SECRET_KEY"
 
@@ -94,7 +109,7 @@ VOL_BREATH_THRESHOLD = 0.4
 DIANA_TIGHT_TRAIL = 0.0015
 
 # ============================================================================
-# 2. ФУНКЦИИ ИНИЦИАЛИЗАЦИИ
+# 3. ФУНКЦИИ ИНИЦИАЛИЗАЦИИ
 # ============================================================================
 def init_paths(app):
     global LOG_DIR, LOG_FILE, LICENSE_FILE, USER_DATA_FILE, LEGAL_ACCEPTED_FILE, SETTINGS_FILE
@@ -124,7 +139,7 @@ def setup_logging():
     )
 
 # ============================================================================
-# 3. ANDROID WAKE LOCK & SERVICE
+# 4. ANDROID WAKE LOCK & SERVICE
 # ============================================================================
 HAS_ANDROID_WAKELOCK = False
 wake_lock = None
@@ -154,7 +169,7 @@ def start_foreground_service():
         logger.warning("⚠️ titan_service.py не найден")
 
 # ============================================================================
-# 4. DEVICE ID & ЗАЩИТА
+# 5. DEVICE ID & ЗАЩИТА
 # ============================================================================
 def get_device_id():
     global DEVICE_ID
@@ -188,7 +203,7 @@ def check_license_status() -> bool:
     return False
 
 # ============================================================================
-# 5. ШИФРОВАНИЕ И СОХРАНЕНИЕ ДАННЫХ КЛИЕНТА
+# 6. ШИФРОВАНИЕ И СОХРАНЕНИЕ ДАННЫХ КЛИЕНТА
 # ============================================================================
 def encrypt_user_data(data_dict: dict) -> bytes:
     json_str = json.dumps(data_dict)
@@ -222,7 +237,7 @@ def load_user_credentials() -> dict:
     return {"token": "", "fut": "7502Y5H", "stk": "D101327", "fx": "G68390"}
 
 # ============================================================================
-# 6. ЮРИДИЧЕСКИЕ ФАЙЛЫ & НАСТРОЙКИ РИСКА
+# 7. ЮРИДИЧЕСКИЕ ФАЙЛЫ & НАСТРОЙКИ РИСКА
 # ============================================================================
 def is_legal_accepted() -> bool:
     if LEGAL_ACCEPTED_FILE and os.path.exists(LEGAL_ACCEPTED_FILE):
@@ -252,7 +267,7 @@ def save_risk_settings(settings):
         json.dump(settings, f)
 
 # ============================================================================
-# 7. ASYNC-SAFE SQLITE ОЧЕРЕДЬ
+# 8. ASYNC-SAFE SQLITE ОЧЕРЕДЬ
 # ============================================================================
 class OrderQueue:
     def __init__(self, db_path: str):
@@ -295,7 +310,7 @@ class OrderQueue:
             pass
 
 # ============================================================================
-# 8. RING BUFFER
+# 9. RING BUFFER
 # ============================================================================
 class TickRingBuffer:
     def __init__(self, size=1024):
@@ -322,7 +337,7 @@ class TickRingBuffer:
         return count
 
 # ============================================================================
-# 9. TITAN MONOLITH CORE
+# 10. TITAN MONOLITH CORE
 # ============================================================================
 BASE_ASSETS = ["SBER", "GAZP", "GOLD", "Si", "CNY"]
 moscow_tz = pytz.timezone('Europe/Moscow')
@@ -730,7 +745,7 @@ async def ws_market_data_feed(bot: TitanAbsoluteMonolith):
             retry_count += 1
 
 # ============================================================================
-# 10. UI ЭКРАНЫ
+# 11. UI ЭКРАНЫ
 # ============================================================================
 class LegalScreen(Screen):
     def __init__(self, **kwargs):
@@ -914,7 +929,7 @@ class DashboardScreen(Screen):
             self.info_label.text = "Торговля приостановлена."
 
 # ============================================================================
-# 11. APP & ЗАПУСК (С ЗАЩИТОЙ try/except И ЗАДЕРЖКОЙ 2.0)
+# 12. APP & ЗАПУСК
 # ============================================================================
 class TITANProApp(App):
     def __init__(self, **kwargs):
@@ -926,15 +941,12 @@ class TITANProApp(App):
     def build(self):
         global LOG_DIR
         
-        # 1. Сначала пути и логирование (безопасно)
         init_paths(self)
         setup_logging()
         logger.info("✅ Пути и логирование инициализированы")
         
-        # 2. Создание бота
         self.bot = TitanAbsoluteMonolith()
         
-        # 3. Настройка UI
         Window.clearcolor = (0.1, 0.1, 0.15, 1)
         
         sm = ScreenManager()
@@ -955,7 +967,6 @@ class TITANProApp(App):
             dash.bot = self.bot
             sm.add_widget(dash)
             sm.current = 'dashboard'
-            # ЗАДЕРЖКА 2.0 СЕКУНДЫ (вместо 0.5)
             Clock.schedule_once(self.start_bot, 2.0)
             
         return sm
@@ -965,11 +976,9 @@ class TITANProApp(App):
             logger.info("🔄 Инициализация Android-специфичных функций...")
             get_device_id()
             init_wake_lock()
-            
             global IS_LICENSED
             IS_LICENSED = check_license_status()
             logger.info(f"✅ Android инициализирован. Лицензия активна: {IS_LICENSED}")
-            
         except Exception as e:
             logger.error(f"⚠️ Ошибка инициализации Android: {e}", exc_info=True)
 
@@ -977,7 +986,7 @@ class TITANProApp(App):
         def run_loop():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            self.bot._loop = loop  
+            self.bot._loop = loop
             try:
                 loop.run_until_complete(self.async_main())
             finally:
@@ -985,7 +994,6 @@ class TITANProApp(App):
                     loop.close()
                 except:
                     pass
-                    
         self._loop_thread = threading.Thread(target=run_loop, daemon=True)
         self._loop_thread.start()
         logger.info("✅ Асинхронный поток запущен")
