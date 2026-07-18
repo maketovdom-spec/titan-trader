@@ -33,27 +33,26 @@ from kivy.clock import Clock
 from kivy.metrics import dp
 
 # ============================================================================
-# 0. ГЛОБАЛЬНЫЙ ЛОГГЕР (СОЗДАЁТСЯ ДО ВСЕХ ОПЕРАЦИЙ)
+# 0. ГЛОБАЛЬНЫЙ ЛОГГЕР
 # ============================================================================
 logger = logging.getLogger("TITAN_PRO")
 logger.setLevel(logging.INFO)
-
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
 logger.addHandler(console_handler)
 
 # ============================================================================
-# 1. ВЫЗОВ WAKE LOCK СЕРВИСА (ТЕПЕРЬ ЛОГГЕР СУЩЕСТВУЕТ)
+# 1. ВЫЗОВ WAKE LOCK СЕРВИСА
 # ============================================================================
 try:
     from titan_service import start_service
     start_service()
     logger.info("✅ Wake Lock сервис активирован при старте")
 except Exception as e:
-    logger.warning(f"⚠️ Не удалось активировать Wake Lock: {e}")
+    logger.warning(f"️ Не удалось активировать Wake Lock: {e}")
 
 # ============================================================================
-# ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ (будут инициализированы в App.build())
+# ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
 # ============================================================================
 LOG_DIR = None
 LOG_FILE = None
