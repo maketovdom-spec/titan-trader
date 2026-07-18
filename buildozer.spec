@@ -6,7 +6,7 @@ source.dir = .
 source.include_exts = py,png,jpg,kv,json,txt
 version = 0.1.0
 
-# ИСПРАВЛЕНО: Добавлены критически важные pyjnius, sqlite3 и openssl
+# КРИТИЧНО: Все зависимости через запятую без пробелов!
 requirements = python3,kivy,aiohttp,pytz,pyjnius,sqlite3,openssl,cython<3.0
 
 orientation = portrait
