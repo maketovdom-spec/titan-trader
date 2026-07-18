@@ -33,7 +33,7 @@ from kivy.clock import Clock
 from kivy.metrics import dp
 
 # ============================================================================
-# ИСПРАВЛЕНИЕ 1: Глобальный logger объявлен ДО любого использования
+# 0. ГЛОБАЛЬНЫЙ ЛОГГЕР
 # ============================================================================
 logger = logging.getLogger("TITAN_PRO")
 
@@ -252,7 +252,7 @@ def save_risk_settings(settings):
         json.dump(settings, f)
 
 # ============================================================================
-# 7. ASYNC-SAFE SQLITE ОЧЕРЕДЬ С RETRY
+# 7. ASYNC-SAFE SQLITE ОЧЕРЕДЬ
 # ============================================================================
 class OrderQueue:
     def __init__(self, db_path: str):
@@ -914,7 +914,7 @@ class DashboardScreen(Screen):
             self.info_label.text = "Торговля приостановлена."
 
 # ============================================================================
-# 11. APP & ЗАПУСК (ИСПРАВЛЕНИЯ 2 и 3 ЗДЕСЬ)
+# 11. APP & ЗАПУСК (С ЗАЩИТОЙ try/except И ЗАДЕРЖКОЙ 2.0)
 # ============================================================================
 class TITANProApp(App):
     def __init__(self, **kwargs):
@@ -955,11 +955,12 @@ class TITANProApp(App):
             dash.bot = self.bot
             sm.add_widget(dash)
             sm.current = 'dashboard'
-            Clock.schedule_once(self.start_bot, 0.5)
+            # ЗАДЕРЖКА 2.0 СЕКУНДЫ (вместо 0.5)
+            Clock.schedule_once(self.start_bot, 2.0)
+            
         return sm
 
     def on_start(self):
-        """ИСПРАВЛЕНИЕ 2: Android-специфичные вызовы перенесены сюда, когда Kivy полностью готов"""
         try:
             logger.info("🔄 Инициализация Android-специфичных функций...")
             get_device_id()
@@ -976,10 +977,7 @@ class TITANProApp(App):
         def run_loop():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            
-            # ИСПРАВЛЕНИЕ 3: Сохраняем ссылку на цикл ДО его запуска
             self.bot._loop = loop  
-            
             try:
                 loop.run_until_complete(self.async_main())
             finally:
@@ -993,7 +991,6 @@ class TITANProApp(App):
         logger.info("✅ Асинхронный поток запущен")
 
     async def async_main(self):
-        # Убрали self.bot._loop = asyncio.get_running_loop(), так как loop уже назначен выше
         await self.bot.start()
         await asyncio.gather(
             ws_market_data_feed(self.bot),
