@@ -7,21 +7,21 @@ on:
 
 jobs:
   build-apk:
-    runs-on: ubuntu-22.04  # 🟢 Поменяли с 20.04 на 22.04
+    runs-on: ubuntu-22.04
     timeout-minutes: 240
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4  # ✅ v4
 
     - name: Set up JDK 17
-      uses: actions/setup-java@v3
+      uses: actions/setup-java@v4  # ✅ v4
       with:
         java-version: '17'
         distribution: 'temurin'
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5  # ✅ v5
       with:
         python-version: '3.8'
 
@@ -50,7 +50,7 @@ jobs:
         if [ ! -f "titan_service.py" ]; then echo "❌ titan_service.py not found!"; exit 1; fi
 
     - name: Cache Buildozer global directory
-      uses: actions/cache@v3
+      uses: actions/cache@v4  # ✅ v4
       with:
         path: |
           ~/.buildozer
@@ -68,7 +68,7 @@ jobs:
         CI: "true"
 
     - name: Upload APK
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4  # ✅ v4
       with:
         name: TITAN-Pro-Client-APK
         path: bin/*.apk
@@ -76,7 +76,7 @@ jobs:
 
     - name: Upload build logs on failure
       if: failure()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4  # ✅ v4
       with:
         name: build-logs
         path: |
