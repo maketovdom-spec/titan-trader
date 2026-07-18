@@ -20,23 +20,71 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Free disk space
         run: |
           sudo apt-get clean
           sudo rm -rf /usr/share/dotnet /opt/ghc
           df -h
 
-      - name: Verify main script exists
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            git \
+            ffmpeg \
+            wget \
+            ccache \
+            libsdl2-dev \
+            libsdl2-image-dev \
+            libsdl2-mixer-dev \
+            libsdl2-ttf-dev \
+            libportmidi-dev \
+            libswscale-dev \
+            libavformat-dev \
+            libavcodec-dev \
+            zlib1g-dev \
+            libgstreamer1.0-0 \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            autoconf \
+            libtool \
+            libtool-bin \
+            pkg-config \
+            unzip \
+            cmake \
+            libffi-dev \
+            python3-dev \
+            automake \
+            libssl-dev \
+            clang \
+            lld
+
+      - name: Install Python build tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install "buildozer==1.5.0"
+          pip install "cython<3.0"
+          pip install "setuptools>=65.0.0,<70.0.0"
+          pip install "wheel"
+          pip install "Jinja2<3.1"
+          pip install "MarkupSafe<2.1"
+
+      - name: Verify files exist
         run: |
           if [ ! -f "main.py" ]; then echo "❌ main.py not found!"; exit 1; fi
           if [ ! -f "titan_service.py" ]; then echo "❌ titan_service.py not found!"; exit 1; fi
           if [ ! -f "buildozer.spec" ]; then echo "❌ buildozer.spec not found!"; exit 1; fi
 
-      - name: Install Python build tools
+      - name: Create debug keystore
         run: |
-          python -m pip install --upgrade pip
-          pip install "buildozer==1.5.0" "cython<3.0" "setuptools>=65.0.0,<70.0.0" wheel
-          pip install "Jinja2<3.1" "MarkupSafe<2.1"
+          mkdir -p ~/.android
+          keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US"
 
       - name: Cache Buildozer global directory
         uses: actions/cache@v4
@@ -44,7 +92,7 @@ jobs:
           path: |
             ~/.buildozer
             .buildozer
-          key: ${{ runner.os }}-buildozer-${{ hashFiles('.github/workflows/build-apk.yml') }}
+          key: ${{ runner.os }}-buildozer-${{ hashFiles('.github/workflows/build-apk.yml', 'buildozer.spec') }}
           restore-keys: |
             ${{ runner.os }}-buildozer-
 
@@ -53,7 +101,7 @@ jobs:
           ANDROID_SDK_ACCEPT_LICENSES: "true"
           DEBIAN_FRONTEND: "noninteractive"
           CI: "true"
-          LDFLAGS: "-fuse-ld=lld"
+          BUILD_IN_CI: "true"
         run: buildozer -v android debug
 
       - name: Find APK
@@ -62,7 +110,7 @@ jobs:
           APK_PATH=$(find . -name "*.apk" -type f | head -n 1)
           if [ -n "$APK_PATH" ]; then
             echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
-            echo "✅ APK found: $APK_PATH"
+            echo "✅ APK found: $APK_PATH (size: $(du -h $APK_PATH | cut -f1))"
           else
             echo "❌ APK not found"
             exit 1
