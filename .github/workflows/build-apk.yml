@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-apk:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04  # 🟢 Поменяли с 20.04 на 22.04
     timeout-minutes: 240
 
     steps:
