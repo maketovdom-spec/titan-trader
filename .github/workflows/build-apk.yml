@@ -7,130 +7,113 @@ on:
 
 jobs:
   build-apk:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-20.04
     timeout-minutes: 240
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v3
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
+    - name: Set up JDK 17
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.8'
 
-      - name: Free disk space
-        run: |
-          sudo apt-get clean
-          sudo rm -rf /usr/share/dotnet /opt/ghc
-          df -h
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          git \
+          ffmpeg \
+          wget \
+          ccache \
+          libsdl2-dev \
+          libsdl2-image-dev \
+          libsdl2-mixer-dev \
+          libsdl2-ttf-dev \
+          libportmidi-dev \
+          libswscale-dev \
+          libavformat-dev \
+          libavcodec-dev \
+          zlib1g-dev \
+          libgstreamer1.0-0 \
+          gstreamer1.0-plugins-base \
+          gstreamer1.0-plugins-good \
+          autoconf \
+          libtool \
+          libtool-bin \
+          pkg-config \
+          unzip \
+          cmake \
+          libffi-dev \
+          python3-dev \
+          automake \
+          libssl-dev \
+          clang \
+          lld
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            git \
-            ffmpeg \
-            wget \
-            ccache \
-            libsdl2-dev \
-            libsdl2-image-dev \
-            libsdl2-mixer-dev \
-            libsdl2-ttf-dev \
-            libportmidi-dev \
-            libswscale-dev \
-            libavformat-dev \
-            libavcodec-dev \
-            zlib1g-dev \
-            libgstreamer1.0-0 \
-            gstreamer1.0-plugins-base \
-            gstreamer1.0-plugins-good \
-            autoconf \
-            libtool \
-            libtool-bin \
-            pkg-config \
-            unzip \
-            cmake \
-            libffi-dev \
-            python3-dev \
-            automake \
-            libssl-dev \
-            clang \
-            lld
+    - name: Install buildozer and dependencies
+      run: |
+        pip install --upgrade pip
+        pip install buildozer==1.4.0
+        pip install python-for-android==2023.1.13
+        pip install cython==0.29.33
+        pip install setuptools>=65.0.0,<70.0.0
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Install Python build tools
-        run: |
-          python -m pip install --upgrade pip
-          pip install "buildozer==1.5.0"
-          pip install "cython<3.0"
-          pip install "setuptools>=65.0.0,<70.0.0"
-          pip install "wheel"
-          pip install "Jinja2<3.1"
-          pip install "MarkupSafe<2.1"
+    - name: Verify files
+      run: |
+        which buildozer
+        if [ ! -f "buildozer.spec" ]; then echo "❌ buildozer.spec not found!"; exit 1; fi
+        if [ ! -f "main.py" ]; then echo "❌ main.py not found!"; exit 1; fi
+        if [ ! -f "titan_service.py" ]; then echo "❌ titan_service.py not found!"; exit 1; fi
 
-      - name: Verify files exist
-        run: |
-          if [ ! -f "main.py" ]; then echo "❌ main.py not found!"; exit 1; fi
-          if [ ! -f "titan_service.py" ]; then echo "❌ titan_service.py not found!"; exit 1; fi
-          if [ ! -f "buildozer.spec" ]; then echo "❌ buildozer.spec not found!"; exit 1; fi
+    - name: Create debug keystore
+      run: |
+        mkdir -p ~/.android
+        keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US"
 
-      - name: Create debug keystore
-        run: |
-          mkdir -p ~/.android
-          keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US"
+    - name: Cache Buildozer global directory
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.buildozer
+          .buildozer
+        key: ${{ runner.os }}-buildozer-${{ hashFiles('.github/workflows/build-apk.yml', 'buildozer.spec') }}
+        restore-keys: |
+          ${{ runner.os }}-buildozer-
 
-      - name: Cache Buildozer global directory
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.buildozer
-            .buildozer
-          key: ${{ runner.os }}-buildozer-${{ hashFiles('.github/workflows/build-apk.yml', 'buildozer.spec') }}
-          restore-keys: |
-            ${{ runner.os }}-buildozer-
+    - name: Build APK
+      run: |
+        python -m buildozer -v android debug
+      env:
+        ANDROID_SDK_ACCEPT_LICENSES: "true"
+        DEBIAN_FRONTEND: "noninteractive"
+        CI: "true"
+        BUILD_IN_CI: "true"
 
-      - name: Build APK
-        env:
-          ANDROID_SDK_ACCEPT_LICENSES: "true"
-          DEBIAN_FRONTEND: "noninteractive"
-          CI: "true"
-          BUILD_IN_CI: "true"
-        run: buildozer -v android debug
+    - name: Upload APK
+      uses: actions/upload-artifact@v3
+      with:
+        name: TITAN-Pro-Client-APK
+        path: bin/*.apk
+        retention-days: 30
 
-      - name: Find APK
-        id: find_apk
-        run: |
-          APK_PATH=$(find . -name "*.apk" -type f | head -n 1)
-          if [ -n "$APK_PATH" ]; then
-            echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
-            echo "✅ APK found: $APK_PATH (size: $(du -h $APK_PATH | cut -f1))"
-          else
-            echo "❌ APK not found"
-            exit 1
-          fi
-
-      - name: Upload APK as Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: TITAN-Pro-Client-APK
-          path: ${{ steps.find_apk.outputs.apk_path }}
-          retention-days: 30
-
-      - name: Upload build logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-logs
-          path: |
-            .buildozer/**/config.log
-            .buildozer/**/*.log
-            ~/.buildozer/**/*.log
-          if-no-files-found: ignore
-          retention-days: 7
+    - name: Upload build logs on failure
+      if: failure()
+      uses: actions/upload-artifact@v3
+      with:
+        name: build-logs
+        path: |
+          .buildozer/**/config.log
+          .buildozer/**/*.log
+          ~/.buildozer/**/*.log
+        if-no-files-found: ignore
+        retention-days: 7
