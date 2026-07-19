@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-apk:
-    runs-on: ubuntu-22.04  # ⬅️ Вот она, новая Ubuntu!
+    runs-on: ubuntu-22.04
     timeout-minutes: 240
 
     steps:
@@ -39,7 +39,7 @@ jobs:
     - name: Install buildozer
       run: |
         pip install --upgrade pip
-        pip install --user buildozer==1.4.0 cython==0.29.33
+        pip install --user buildozer==1.5.0 cython==0.29.33
         echo "$HOME/.local/bin" >> $GITHUB_PATH
 
     - name: Verify files and buildozer
