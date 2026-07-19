@@ -84,10 +84,7 @@ source.dir = .
 source.main = main.py
 source.include_exts = py,png,jpg,kv,atlas,json
 version = 0.1
-
-# Полный проверенный набор зависимостей
 requirements = python3,kivy==2.2.1,aiohttp,pytz,pyjnius,sqlite3,openssl,cython<3.0
-
 android.permissions = INTERNET,WAKE_LOCK
 android.api = 33
 android.minapi = 21
@@ -95,10 +92,7 @@ android.ndk_api = 21
 android.ndk = 25c
 android.accept_sdk_license = True
 android.allow_insecure_keystore = True
-
-# Обе архитектуры для совместимости
 android.archs = armeabi-v7a, arm64-v8a
-
 orientation = portrait
 fullscreen = 0
 log_level = 2
@@ -114,7 +108,6 @@ EOF
       uses: actions/cache@v4
       with:
         path: ~/.buildozer
-        # ✅ Кэшируем по хэшу самого workflow-файла, а не .spec
         key: ${{ runner.os }}-buildozer-${{ hashFiles('.github/workflows/build-apk.yml') }}
         restore-keys: |
           ${{ runner.os }}-buildozer-
@@ -126,7 +119,6 @@ EOF
         DEBIAN_FRONTEND: "noninteractive"
         CI: "true"
         BUILD_IN_CI: "true"
-      # ✅ Запускаем через xvfb-run, чтобы обойти ошибку headless-сервера
       run: xvfb-run -a buildozer -v android debug
 
     - name: Find APK
