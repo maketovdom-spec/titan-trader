@@ -23,55 +23,129 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.8'
+        python-version: '3.11'
+
+    - name: Free disk space
+      run: |
+        sudo apt-get clean
+        sudo rm -rf /usr/share/dotnet /opt/ghc
+        df -h
 
     - name: Install system dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y \
           build-essential git ffmpeg wget ccache \
-          libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev \
-          libportmidi-dev libswscale-dev libavformat-dev libavcodec-dev \
-          zlib1g-dev libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+          libsdl2-dev libsdl2-image-dev \
+          libsdl2-mixer-dev libsdl2-ttf-dev \
+          libportmidi-dev libswscale-dev \
+          libavformat-dev libavcodec-dev \
+          zlib1g-dev libgstreamer1.0-0 \
+          gstreamer1.0-plugins-base \
+          gstreamer1.0-plugins-good \
           autoconf libtool libtool-bin pkg-config \
-          unzip cmake libffi-dev python3-dev automake libssl-dev lld xvfb
+          unzip cmake libffi-dev \
+          python3-dev automake \
+          libssl-dev lld clang \
+          xvfb
 
-    - name: Install buildozer
+    - name: Install Python build tools
       run: |
-        pip install --upgrade pip
-        pip install --user buildozer==1.5.0 cython==0.29.33
-        echo "$HOME/.local/bin" >> $GITHUB_PATH
+        python -m pip install --upgrade pip
+        pip install --upgrade buildozer python-for-android
+        pip install "cython<3.0" "setuptools>=65.0.0,<70.0.0" wheel
+        pip install "Jinja2<3.1" "MarkupSafe<2.1"
 
-    - name: Verify files and buildozer
+    - name: Verify required files
       run: |
-        which buildozer
-        if [ ! -f "buildozer.spec" ]; then echo "❌ buildozer.spec not found in root!"; exit 1; fi
-        if [ ! -f "main.py" ]; then echo "❌ main.py not found!"; exit 1; fi
-        if [ ! -f "titan_service.py" ]; then echo "❌ titan_service.py not found!"; exit 1; fi
+        if [ ! -f "main.py" ]; then
+          echo "❌ main.py not found!"
+          exit 1
+        fi
+        if [ ! -f "titan_service.py" ]; then
+          echo "❌ titan_service.py not found!"
+          exit 1
+        fi
+        echo "✅ Files verified"
+
+    - name: Create debug keystore
+      run: |
+        mkdir -p ~/.android
+        keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US"
+
+    - name: Create buildozer.spec
+      run: |
+        cat > buildozer.spec << 'EOF'
+[app]
+title = TITAN Pro Client
+package.name = titanproclient
+package.domain = org.titan.pro
+source.dir = .
+source.main = main.py
+source.include_exts = py,png,jpg,kv,atlas,json
+version = 0.1
+
+# Полный проверенный набор зависимостей
+requirements = python3,kivy==2.2.1,aiohttp,pytz,pyjnius,sqlite3,openssl,cython<3.0
+
+android.permissions = INTERNET,WAKE_LOCK
+android.api = 33
+android.minapi = 21
+android.ndk_api = 21
+android.ndk = 25c
+android.accept_sdk_license = True
+android.allow_insecure_keystore = True
+
+# Обе архитектуры для совместимости
+android.archs = armeabi-v7a, arm64-v8a
+
+orientation = portrait
+fullscreen = 0
+log_level = 2
+warn_on_root = 0
+android.gradle_options = -Xmx2048m
+
+[buildozer]
+log_level = 1
+warn_on_root = 0
+EOF
 
     - name: Cache Buildozer global directory
       uses: actions/cache@v4
       with:
-        path: |
-          ~/.buildozer
-          .buildozer
-        key: ${{ runner.os }}-buildozer-${{ hashFiles('.github/workflows/build-apk.yml', 'buildozer.spec') }}
+        path: ~/.buildozer
+        # ✅ Кэшируем по хэшу самого workflow-файла, а не .spec
+        key: ${{ runner.os }}-buildozer-${{ hashFiles('.github/workflows/build-apk.yml') }}
         restore-keys: |
           ${{ runner.os }}-buildozer-
 
     - name: Build APK
-      run: |
-        xvfb-run -a buildozer -v android debug
       env:
+        BUILDOZER_ALLOW_ROOT: "1"
         ANDROID_SDK_ACCEPT_LICENSES: "true"
         DEBIAN_FRONTEND: "noninteractive"
         CI: "true"
+        BUILD_IN_CI: "true"
+      # ✅ Запускаем через xvfb-run, чтобы обойти ошибку headless-сервера
+      run: xvfb-run -a buildozer -v android debug
 
-    - name: Upload APK
+    - name: Find APK
+      id: find_apk
+      run: |
+        APK_PATH=$(find . -name "*.apk" -type f | grep -i "debug" | head -n 1)
+        if [ -n "$APK_PATH" ]; then
+          echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
+          echo "✅ APK found: $APK_PATH"
+        else
+          echo "❌ APK not found"
+          exit 1
+        fi
+
+    - name: Upload APK as Artifact
       uses: actions/upload-artifact@v4
       with:
         name: TITAN-Pro-Client-APK
-        path: bin/*.apk
+        path: ${{ steps.find_apk.outputs.apk_path }}
         retention-days: 30
 
     - name: Upload build logs on failure
@@ -83,5 +157,4 @@ jobs:
           .buildozer/**/config.log
           .buildozer/**/*.log
           ~/.buildozer/**/*.log
-        if-no-files-found: ignore
         retention-days: 7
