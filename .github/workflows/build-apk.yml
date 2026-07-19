@@ -53,7 +53,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install --upgrade buildozer python-for-android
-        pip install "cython<3.0" "setuptools>=65.0.0,<70.0.0" wheel
+        pip install "cython==3.0.11" "setuptools>=65.0.0,<70.0.0" wheel
         pip install "Jinja2<3.1" "MarkupSafe<2.1"
 
     - name: Verify required files
@@ -66,43 +66,16 @@ jobs:
           echo "❌ titan_service.py not found!"
           exit 1
         fi
-        echo "✅ Files verified"
+        if [ ! -f "buildozer.spec" ]; then
+          echo "❌ buildozer.spec not found in root!"
+          exit 1
+        fi
+        echo "✅ All files verified"
 
     - name: Create debug keystore
       run: |
         mkdir -p ~/.android
         keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US"
-
-    - name: Create buildozer.spec
-      run: |
-        cat > buildozer.spec << 'EOF'
-[app]
-title = TITAN Pro Client
-package.name = titanproclient
-package.domain = org.titan.pro
-source.dir = .
-source.main = main.py
-source.include_exts = py,png,jpg,kv,atlas,json
-version = 0.1
-requirements = python3,kivy==2.2.1,aiohttp,pytz,pyjnius,sqlite3,openssl,cython<3.0
-android.permissions = INTERNET,WAKE_LOCK
-android.api = 33
-android.minapi = 21
-android.ndk_api = 21
-android.ndk = 25c
-android.accept_sdk_license = True
-android.allow_insecure_keystore = True
-android.archs = armeabi-v7a, arm64-v8a
-orientation = portrait
-fullscreen = 0
-log_level = 2
-warn_on_root = 0
-android.gradle_options = -Xmx2048m
-
-[buildozer]
-log_level = 1
-warn_on_root = 0
-EOF
 
     - name: Cache Buildozer global directory
       uses: actions/cache@v4
@@ -146,7 +119,6 @@ EOF
       with:
         name: build-logs
         path: |
-          .buildozer/**/config.log
-          .buildozer/**/*.log
-          ~/.buildozer/**/*.log
+          .buildozer/
+          *.log
         retention-days: 7
