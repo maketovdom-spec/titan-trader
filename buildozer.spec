@@ -6,8 +6,11 @@ source.dir = .
 source.include_exts = py,png,jpg,kv,json,txt
 version = 1.0.0
 
-# ⚠️ ЭТА СТРОКА ДОЛЖНА БЫТЬ ИМЕННО ТАКОЙ, БЕЗ ПРОБЕЛОВ ПОСЛЕ ЗАПЯТЫХ!
-requirements = python3,kivy,aiohttp,pytz,pyjnius,sqlite3,openssl,cython<3.0
+# 🛠 ФИНАЛЬНАЯ СТРОКА: Python 3.11, aiohttp 3.9.0, Cython 3.0.11
+requirements = python3,kivy,aiohttp==3.9.0,pytz,pyjnius,sqlite3,openssl,cython==3.0.11
+
+# 🛠 Явно говорим p4a использовать Python 3.11
+android.python_version = 3.11
 
 orientation = portrait
 android.permissions = INTERNET,ACCESS_NETWORK_STATE,WAKE_LOCK
