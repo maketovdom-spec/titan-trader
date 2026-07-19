@@ -52,24 +52,18 @@ jobs:
     - name: Install Python build tools
       run: |
         python -m pip install --upgrade pip
-        pip install --upgrade buildozer python-for-android
-        pip install "cython==3.0.11" "setuptools>=65.0.0,<70.0.0" wheel
+        # Ставим buildozer и cython с фиксированными проверенными версиями
+        pip install buildozer==1.5.0 cython==3.0.11
+        pip install setuptools wheel
         pip install "Jinja2<3.1" "MarkupSafe<2.1"
+        # КРИТИЧЕСКИ ВАЖНО: Явно добавляем путь в окружение, чтобы buildozer был виден!
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
 
     - name: Verify required files
       run: |
-        if [ ! -f "main.py" ]; then
-          echo "❌ main.py not found!"
-          exit 1
-        fi
-        if [ ! -f "titan_service.py" ]; then
-          echo "❌ titan_service.py not found!"
-          exit 1
-        fi
-        if [ ! -f "buildozer.spec" ]; then
-          echo "❌ buildozer.spec not found in root!"
-          exit 1
-        fi
+        if [ ! -f "main.py" ]; then echo "❌ main.py not found!"; exit 1; fi
+        if [ ! -f "titan_service.py" ]; then echo "❌ titan_service.py not found!"; exit 1; fi
+        if [ ! -f "buildozer.spec" ]; then echo "❌ buildozer.spec not found in root!"; exit 1; fi
         echo "✅ All files verified"
 
     - name: Create debug keystore
@@ -92,6 +86,7 @@ jobs:
         DEBIAN_FRONTEND: "noninteractive"
         CI: "true"
         BUILD_IN_CI: "true"
+      # 🟢 ЗАПУСКАЕМ ЧЕРЕЗ xvfb-run, НО БЕЗ python -m!
       run: xvfb-run -a buildozer -v android debug
 
     - name: Find APK
@@ -121,4 +116,5 @@ jobs:
         path: |
           .buildozer/
           *.log
+        if-no-files-found: ignore
         retention-days: 7
