@@ -7,8 +7,8 @@ source.main = main.py
 source.include_exts = py,png,jpg,kv,atlas,json
 version = 0.1
 
-# 🟢 ЖЁСТКО ФИКСИРУЕМ НУЖНЫЕ ВЕРСИИ — БЕЗ ЭТОГО КЛИЕНТ НЕ СОБЕРЁТСЯ!
-requirements = python3,kivy,aiohttp,pytz,pyjnius,sqlite3,openssl,cython==3.0.11
+# 🟢 ВАЖНО: Cython >= 3.0 (не < 3.0, не без версии!)
+requirements = python3,kivy,aiohttp,pytz,pyjnius,sqlite3,openssl,cython>=3.0
 android.python_version = 3.11
 
 android.permissions = INTERNET,WAKE_LOCK
