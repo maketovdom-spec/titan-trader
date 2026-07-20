@@ -7,8 +7,10 @@ source.main = main.py
 source.include_exts = py,png,jpg,kv,atlas,json
 version = 0.1
 
-# 🟢 ФИНАЛЬНЫЕ ИСПРАВЛЕНИЯ: Cython>=3.0, pyjnius без версии
-requirements = python3,kivy,aiohttp,pytz,pyjnius,sqlite3,openssl,cython>=3.0
+# 🟢 ФИНАЛЬНЫЕ ИСПРАВЛЕНИЯ: pyjnius убран (Kivy подтянет его сам),
+# cython>=3.0 (для Python 3.14 внутри p4a)
+requirements = python3,kivy,aiohttp,pytz,sqlite3,openssl,cython>=3.0
+
 android.python_version = 3.11
 
 android.permissions = INTERNET,WAKE_LOCK
