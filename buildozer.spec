@@ -1,3 +1,4 @@
+
 [app]
 title = TITAN Pro Client
 package.name = titanproclient
@@ -7,7 +8,7 @@ source.main = main.py
 source.include_exts = py,png,jpg,kv,atlas,json
 version = 0.1
 
-requirements = python3,kivy,requests,urllib3,pytz,sqlite3,openssl,cython>=3.0
+requirements = python3==3.11.8,kivy,requests,urllib3,pytz,sqlite3,openssl,cython==3.0.10
 
 android.python_version = 3.11
 
