@@ -1,9 +1,9 @@
 name: Build TITAN Pro Client APK
 
 on:
-  workflow_dispatch:
   push:
-    branches: [ main, master ]
+    branches: [ "main", "master" ]
+  workflow_dispatch:
 
 jobs:
   build-apk:
@@ -11,105 +11,43 @@ jobs:
     timeout-minutes: 240
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
+      - name: Set up Python 3.8
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+          architecture: 'x64'
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openjdk-17-jdk autoconf automake build-essential libssl-dev libffi-dev zlib1g-dev git
 
-    - name: Free disk space
-      run: |
-        sudo apt-get clean
-        sudo rm -rf /usr/share/dotnet /opt/ghc
-        df -h
+      - name: Install Buildozer and pinned Cython
+        run: |
+          pip install --upgrade pip
+          pip install buildozer cython==0.29.33
 
-    - name: Install system dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          build-essential git ffmpeg wget ccache \
-          libsdl2-dev libsdl2-image-dev \
-          libsdl2-mixer-dev libsdl2-ttf-dev \
-          libportmidi-dev libswscale-dev \
-          libavformat-dev libavcodec-dev \
-          zlib1g-dev libgstreamer1.0-0 \
-          gstreamer1.0-plugins-base \
-          gstreamer1.0-plugins-good \
-          autoconf libtool libtool-bin pkg-config \
-          unzip cmake libffi-dev \
-          python3-dev automake \
-          libssl-dev lld clang \
-          xvfb
+      - name: Initialize buildozer.spec if missing
+        run: |
+          if [ ! -f buildozer.spec ]; then
+            buildozer init
+          fi
 
-    - name: Install Python build tools
-      run: |
-        python -m pip install --upgrade pip
-        pip install buildozer==1.5.0 wheel setuptools
-        pip install "Jinja2<3.1" "MarkupSafe<2.1"
-        echo "$HOME/.local/bin" >> $GITHUB_PATH
+      - name: Accept Android SDK licenses
+        run: |
+          yes | sdkmanager --licenses || true
 
-    - name: Verify required files
-      run: |
-        if [ ! -f "main.py" ]; then echo "❌ main.py not found!"; exit 1; fi
-        if [ ! -f "titan_service.py" ]; then echo "❌ titan_service.py not found!"; exit 1; fi
-        if [ ! -f "buildozer.spec" ]; then echo "❌ buildozer.spec not found in root!"; exit 1; fi
-        echo "✅ All files verified"
+      - name: Build APK
+        run: |
+          export P4A_BUILD_TIMEOUT=600
+          buildozer -v android debug
 
-    - name: Create debug keystore
-      run: |
-        mkdir -p ~/.android
-        keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug, O=Android, C=US"
-
-    - name: Cache Buildozer global directory
-      uses: actions/cache@v4
-      with:
-        path: ~/.buildozer
-        key: ${{ runner.os }}-buildozer-${{ hashFiles('.github/workflows/build-apk.yml') }}
-        restore-keys: |
-          ${{ runner.os }}-buildozer-
-
-    - name: Build APK
-      env:
-        BUILDOZER_ALLOW_ROOT: "1"
-        ANDROID_SDK_ACCEPT_LICENSES: "true"
-        DEBIAN_FRONTEND: "noninteractive"
-        CI: "true"
-        BUILD_IN_CI: "true"
-      run: xvfb-run -a buildozer -v android debug
-
-    - name: Find APK
-      id: find_apk
-      run: |
-        APK_PATH=$(find . -name "*.apk" -type f | grep -i "debug" | head -n 1)
-        if [ -n "$APK_PATH" ]; then
-          echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
-          echo "✅ APK found: $APK_PATH"
-        else
-          echo "❌ APK not found"
-          exit 1
-        fi
-
-    - name: Upload APK as Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: TITAN-Pro-Client-APK
-        path: ${{ steps.find_apk.outputs.apk_path }}
-        retention-days: 30
-
-    - name: Upload build logs on failure
-      if: failure()
-      uses: actions/upload-artifact@v4
-      with:
-        name: build-logs
-        path: |
-          .buildozer/**/*.log
-        if-no-files-found: ignore
-        retention-days: 7
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: titan-pro-client-apk
+          path: bin/*.apk
