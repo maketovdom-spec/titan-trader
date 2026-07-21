@@ -1,0 +1,39 @@
+name: Build TITAN Pro Client APK
+on:
+  push:
+    branches: ["main", "master"]
+  workflow_dispatch:
+jobs:
+  build-apk:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 240
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Python 3.8
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.8"
+          architecture: "x64"
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openjdk-17-jdk autoconf automake build-essential libssl-dev libffi-dev zlib1g-dev git
+      - name: Install Buildozer
+        run: |
+          pip install --upgrade pip
+          pip install buildozer cython==0.29.33
+      - name: Init Buildozer
+        run: buildozer init || true
+      - name: Accept Licenses
+        run: yes | sdkmanager --licenses || true
+      - name: Build APK
+        run: |
+          export P4A_BUILD_TIMEOUT=600
+          buildozer -v android debug
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: titan-pro-client-apk
+          path: bin/*.apk
