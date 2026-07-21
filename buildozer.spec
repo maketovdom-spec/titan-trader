@@ -1,4 +1,3 @@
-
 [app]
 title = TITAN Pro Client
 package.name = titanproclient
@@ -8,15 +7,15 @@ source.main = main.py
 source.include_exts = py,png,jpg,kv,atlas,json
 version = 0.1
 
-requirements = python3==3.11.8,kivy,requests,urllib3,pytz,sqlite3,openssl,cython==3.0.10
-
-android.python_version = 3.11
+# python3 без версии → авто-подстройка под hostpython3 на раннере
+# sqlite3 → обязательно для работы OrderQueue на Android
+requirements = python3,kivy,requests,urllib3,pytz,openssl,sqlite3,cython==3.0.10
 
 android.permissions = INTERNET,WAKE_LOCK
 android.api = 33
 android.minapi = 21
 android.ndk_api = 21
-android.ndk = 25b
+# android.ndk не указан → используем системный NDK (r27) на раннере — это стабильнее
 android.accept_sdk_license = True
 android.allow_insecure_keystore = True
 android.archs = armeabi-v7a, arm64-v8a
