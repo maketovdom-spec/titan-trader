@@ -7,7 +7,7 @@ source.main = main.py
 source.include_exts = py,png,jpg,kv,atlas,json
 version = 0.1
 
-requirements = python3,kivy,aiohttp,pytz,sqlite3,openssl,cython>=3.0
+requirements = python3,kivy,requests,urllib3,pytz,sqlite3,openssl,cython>=3.0
 
 android.python_version = 3.11
 
