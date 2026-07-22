@@ -7,9 +7,16 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    # Разрешаем запись контента для безопасного создания релизов в будущем
+    permissions:
+      contents: write
 
     steps:
     - name: Checkout repository
@@ -19,30 +26,121 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.12'
+        cache: 'pip'
+
+    - name: Set up Java (JDK 17)
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
 
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y openjdk-17-jdk autoconf libtool pkg-config zlib1g-dev libncurses-dev
+        sudo apt-get install -y \
+          autoconf \
+          libtool \
+          pkg-config \
+          zlib1g-dev \
+          libncurses5-dev \
+          libgdbm-dev \
+          libssl-dev \
+          libffi-dev \
+          libsqlite3-dev \
+          libbz2-dev \
+          lld \
+          cmake \
+          unzip \
+          zip
 
     - name: Install Python dependencies
       run: |
-        python -m pip install --upgrade pip
-        pip install buildozer cython
+        python -m pip install --upgrade pip setuptools wheel
+        pip install cython buildozer
 
-    - name: Reset NDK Environment Variables
+    - name: Cache Buildozer global directory and local state
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.buildozer
+          .buildozer
+        key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec') }}
+        restore-keys: |
+          ${{ runner.os }}-buildozer-
+
+    - name: Clear Android Environment Variables
       run: |
-        unset ANDROID_NDK_HOME
-        unset ANDROID_NDK_ROOT
-        unset ANDROID_NDK_LATEST_HOME
+        echo "ANDROID_HOME=" >> $GITHUB_ENV
+        echo "ANDROID_NDK_HOME=" >> $GITHUB_ENV
+        echo "ANDROID_NDK_ROOT=" >> $GITHUB_ENV
 
     - name: Build APK with Buildozer
+      timeout-minutes: 45
+      run: yes | buildozer -v android debug
+      env:
+        GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false"
+
+    # =========================================================================
+    # 🔐 ЗАКРЫТАЯ ЗОНА: АРХИТЕКТУРНЫЕ ЗАГЛУШКИ НА БУДУЩЕЕ (RELEASE & SIGNING)
+    # =========================================================================
+    # ТУТ ЗАДУМАНО: Подписание APK цифровым ключом для Google Play / RuStore.
+    # Если нужно переключить Buildozer на Release:
+    # 1. Изменить команду выше на: buildozer -v android release
+    # 2. Раскомментировать шаг ниже (Sign APK) для автоматического релиза.
+    #
+    # - name: Sign Artifact (Future Release Template)
+    #   if: false # Активировать при наличии keystore в Secrets
+    #   uses: r0adkll/sign-android-release@v1
+    #   with:
+    #     releaseDirectory: bin/
+    #     signingKeyBase64: ${{ secrets.ANDROID_SIGNING_KEY }}
+    #     alias: ${{ secrets.ANDROID_KEY_ALIAS }}
+    #     keyStorePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+    #     keyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    # =========================================================================
+
+    - name: Rename APK with commit hash
       run: |
-        buildozer -v android clean
-        yes | buildozer -v android debug
+        cd bin/
+        SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+        for f in *.apk; do
+          mv "$f" "TITAN-Pro-${SHORT_SHA}-$f"
+        done
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: apk-file
         path: bin/*.apk
+        if-no-files-found: error
+
+    # ⚙️ ЗАГЛУШКА ДЛЯ ТЕЛЕГРАМ (Спящий режим)
+    - name: Send Telegram notification (Stub)
+      uses: appleboy/telegram-action@v1.0.1
+      if: false
+      with:
+        token: ${{ secrets.TELEGRAM_BOT_TOKEN || 'STUB_TOKEN' }}
+        to: ${{ secrets.TELEGRAM_CHAT_ID || 'STUB_CHAT_ID' }}
+        format: markdown
+        message: |
+          🚀 *TITAN Pro Client APK собран успешно!*
+          
+          **Ветка:** `${{ github.ref_name }}`
+          **Коммит:** `${{ github.sha }}`
+          **Автор:** ${{ github.actor }}
+          
+          📦 Готовый APK-файл прикреплен ниже.
+        document: bin/*.apk
+
+    # 🚀 ЗАГЛУШКА ДЛЯ GITHUB RELEASES (Спящий режим)
+    - name: Create GitHub Release (Stub)
+      uses: softprops/action-gh-release@v2
+      if: false
+      with:
+        tag_name: v1.0.0-${{ github.run_number }}
+        name: "Release ${{ github.run_number }}"
+        files: bin/*.apk
+        draft: true
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
