@@ -1,0 +1,45 @@
+name: Build TITAN Pro Client APK
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y openjdk-17-jdk autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5
+        python -m pip install --upgrade pip
+        pip install buildozer cython
+
+    - name: Reset NDK Environment Variables
+      run: |
+        unset ANDROID_NDK_HOME
+        unset ANDROID_NDK_ROOT
+        unset ANDROID_NDK_LATEST_HOME
+
+    - name: Build APK with Buildozer
+      run: |
+        buildozer android clean
+        buildozer -v android debug
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: apk-file
+        path: bin/*.apk
