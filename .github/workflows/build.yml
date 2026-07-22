@@ -22,11 +22,11 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
+    # 🔧 ИСПРАВЛЕНИЕ: Убрали cache: 'pip', чтобы экшен не требовал файла requirements.txt
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.12'
-        cache: 'pip'
 
     - name: Set up Java (JDK 17)
       uses: actions/setup-java@v4
@@ -83,13 +83,8 @@ jobs:
     # =========================================================================
     # 🔐 ЗАКРЫТАЯ ЗОНА: АРХИТЕКТУРНЫЕ ЗАГЛУШКИ НА БУДУЩЕЕ (RELEASE & SIGNING)
     # =========================================================================
-    # ТУТ ЗАДУМАНО: Подписание APK цифровым ключом для Google Play / RuStore.
-    # Если нужно переключить Buildozer на Release:
-    # 1. Изменить команду выше на: buildozer -v android release
-    # 2. Раскомментировать шаг ниже (Sign APK) для автоматического релиза.
-    #
     # - name: Sign Artifact (Future Release Template)
-    #   if: false # Активировать при наличии keystore в Secrets
+    #   if: false
     #   uses: r0adkll/sign-android-release@v1
     #   with:
     #     releaseDirectory: bin/
