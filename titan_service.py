@@ -1,4 +1,5 @@
 import logging
+
 logger = logging.getLogger("TITAN_SERVICE")
 
 def start_service():
