@@ -67,6 +67,7 @@ jobs:
         path: |
           ~/.buildozer
           .buildozer
+          !.buildozer/android/platform/build
         key: ${{ runner.os }}-buildozer-v2-${{ hashFiles('buildozer.spec') }}
         restore-keys: |
           ${{ runner.os }}-buildozer-v2-
@@ -80,21 +81,19 @@ jobs:
     - name: Build APK with Buildozer
       timeout-minutes: 45
       run: |
-        # Отключаем fast-fail, чтобы ошибка первой попытки не уничтожала шаг
         set +e
+        set +o pipefail
         
         echo "🚀 Запуск первой попытки сборки..."
         yes | buildozer -v android debug
         FIRST_BUILD_STATUS=$?
         
-        # Возвращаем strict-режим
         set -e
+        set -o pipefail
         
-        # Если первая попытка завершилась неудачей (статус не 0)
         if [ $FIRST_BUILD_STATUS -ne 0 ]; then
           echo "⚠️ Первая попытка упала (Exit code: $FIRST_BUILD_STATUS). Вычищаем кэш и пробуем снова..."
           
-          # Глубокая очистка проблемных зон
           rm -rf bin/*
           rm -rf .buildozer/
           rm -rf ~/.buildozer/android/platform/
@@ -111,10 +110,14 @@ jobs:
         cd bin/
         SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
         
-        ORIGINAL_APK=$(ls *.apk | head -n 1)
+        # Надежный поиск APK на любом уровне вложенности внутри bin/
+        ORIGINAL_APK_PATH=$(find . -name "*.apk" | head -n 1)
+        ORIGINAL_APK=$(basename "$ORIGINAL_APK_PATH")
+        
         NEW_NAME="TITAN-Pro-${SHORT_SHA}-${ORIGINAL_APK}"
         
-        mv "$ORIGINAL_APK" "$NEW_NAME"
+        # Переносим файл в корень папки bin/ с новым именем
+        mv "$ORIGINAL_APK_PATH" "./$NEW_NAME"
         
         echo "FINAL_APK_PATH=bin/$NEW_NAME" >> $GITHUB_ENV
 
@@ -138,6 +141,7 @@ jobs:
         SIGNED_FILE="${{ steps.sign_app.outputs.signedArtifactPath }}"
         TARGET_PATH="${{ env.FINAL_APK_PATH }}"
         
+        # Очищаем всё лишнее, оставляя только итоговый подписанный файл по нужному пути
         rm -rf bin/*
         mv "$SIGNED_FILE" "$TARGET_PATH"
         rm -rf signed_bin/
@@ -149,14 +153,12 @@ jobs:
         path: ${{ env.FINAL_APK_PATH }}
         if-no-files-found: error
 
-    # 📝 ГЕНЕРАЦИЯ ЧЕЙНДЖЛОГА
+    # 📝 ГЕНЕРАЦИЯ ЧЕЙНДЖЛОГА (Исправлен синтаксис многострочной записи)
     - name: Generate Changelog
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       run: |
-        RAW_LOGS=$(git log -10 --pretty=format:"- %s")
-        
         echo "CHANGELOG_RAW<<EOF" >> $GITHUB_ENV
-        echo "$RAW_LOGS" >> $GITHUB_ENV
+        git log -10 --pretty=format:"- %s" >> $GITHUB_ENV
         echo "" >> $GITHUB_ENV
         echo "EOF" >> $GITHUB_ENV
 
@@ -168,10 +170,10 @@ jobs:
         if [ -z "$VERSION" ]; then VERSION="1.0.0"; fi
         echo "APP_VERSION=$VERSION" >> $GITHUB_ENV
 
-    # ⚙️ ОТПРАВКА В ТЕЛЕГРАМ (СПЯЩИЙ РЕЖИМ ДЛЯ РФ)
+    # ⚙️ ОТПРАВКА В ТЕЛЕГРАМ (СПЯЩИЙ РЕЖИМ)
     - name: Send Telegram notification (Stub)
       uses: appleboy/telegram-action@v1.0.1
-      if: false # ❌ Отключено. Чтобы активировать для зарубежных релизов, просто удали эту строку.
+      if: false 
       with:
         token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         to: ${{ secrets.TELEGRAM_CHAT_ID }}
