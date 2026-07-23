@@ -80,16 +80,28 @@ jobs:
     - name: Build APK with Buildozer
       timeout-minutes: 45
       run: |
-        (yes | buildozer -v android debug) || {
-          echo "⚠️ Первая попытка упала из-за сети или сбоя кэша. Полностью вычищаем битые хвосты и пробуем снова..."
-          # Удаляем локальные артефакты сборки проекта
+        # Отключаем fast-fail, чтобы ошибка первой попытки не уничтожала шаг
+        set +e
+        
+        echo "🚀 Запуск первой попытки сборки..."
+        yes | buildozer -v android debug
+        FIRST_BUILD_STATUS=$?
+        
+        # Возвращаем strict-режим
+        set -e
+        
+        # Если первая попытка завершилась неудачей (статус не 0)
+        if [ $FIRST_BUILD_STATUS -ne 0 ]; then
+          echo "⚠️ Первая попытка упала (Exit code: $FIRST_BUILD_STATUS). Вычищаем кэш и пробуем снова..."
+          
+          # Глубокая очистка проблемных зон
           rm -rf bin/*
           rm -rf .buildozer/
-          # Удаляем кэш платформы Android, чтобы Buildozer скачал SDK/NDK заново
           rm -rf ~/.buildozer/android/platform/
-          # Перезапускаем чистую сборку с нуля
+          
+          echo "🔄 Запуск повторной чистой сборки..."
           yes | buildozer -v android debug
-        }
+        fi
       env:
         GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false"
 
