@@ -4,10 +4,10 @@ package.name = titanproclient
 package.domain = org.titan.pro
 source.dir = .
 source.main = main.py
-source.include_exts = py,png,jpg,kv,atlas,json,so,db,pyd,pyc,pem,crt
+source.include_exts = py,png,jpg,kv,atlas,json,so,db
 version = 0.1
 
-requirements = python3==3.11.9,hostpython3==3.11.9,kivy==2.3.0,requests,urllib3,pytz,certifi,openssl,cryptography,cython==3.0.10
+requirements = python3==3.12.9,hostpython3==3.12.9,kivy==2.3.0,requests,urllib3,pytz,sqlite3,certifi,cryptography,cython==3.0.10
 
 android.permissions = INTERNET,WAKE_LOCK
 android.api = 33
@@ -22,8 +22,7 @@ orientation = portrait
 fullscreen = 0
 log_level = 2
 warn_on_root = 0
-
-android.gradle_options = -Xmx4096m -Dorg.gradle.daemon=false
+android.gradle_options = -Xmx2048m
 
 [buildozer]
 log_level = 2
