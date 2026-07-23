@@ -37,31 +37,20 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y \
-          autoconf \
-          automake \
-          autoconf-archive \
-          m4 \
-          libtool \
-          libtool-bin \
-          pkg-config \
-          zlib1g-dev \
-          libncurses5-dev \
-          libgdbm-dev \
-          libssl-dev \
-          libffi-dev \
-          libsqlite3-dev \
-          libbz2-dev \
-          lld \
-          cmake \
-          unzip \
-          zip
         
-        # ФИНАЛЬНЫЙ ХАК ДЛЯ UBUNTU 24.04
-        # Обновляем libtool и копируем макросы в зону видимости autoconf
-        sudo libtoolize --force --copy
+        # Переустановка autotools для сброса состояния
+        sudo apt-get install --reinstall -y autoconf automake libtool autoconf-archive m4 \
+          libtool-bin pkg-config zlib1g-dev libncurses5-dev libgdbm-dev libssl-dev libffi-dev \
+          libsqlite3-dev libbz2-dev lld cmake unzip zip
+        
+        # АГРЕССИВНОЕ КОПИРОВАНИЕ: кладём макрос libtool в корень и во все возможные папки
+        sudo cp /usr/share/aclocal/libtool.m4 . || true
         sudo cp /usr/share/aclocal/libtool.m4 /usr/share/autoconf/autoconf/libtool.m4 || true
-        # Увеличиваем лимиты для Gradle
+        sudo cp /usr/share/aclocal/libtool.m4 /usr/share/autoconf/libtool.m4 || true
+        
+        # Расширяем путь для aclocal (на случай, если autoconf ищет там)
+        echo "ACLOCAL_PATH=/usr/share/aclocal:/usr/share/autoconf/autoconf" >> $GITHUB_ENV
+        
         sudo sysctl -w fs.inotify.max_user_watches=524288 || true
 
     - name: Install Python dependencies
@@ -92,8 +81,8 @@ jobs:
         set +e
         set +o pipefail
         
-        # КРИТИЧЕСКИ ВАЖНО: Указываем autoconf/aсlocal, где искать макросы libtool
-        export ACLOCAL_PATH=/usr/share/aclocal
+        # Явно указываем путь к макросам
+        export ACLOCAL_PATH=/usr/share/aclocal:/usr/share/autoconf/autoconf
         
         echo "🚀 Запуск первой попытки сборки..."
         for i in {1..5}; do echo y; done | buildozer -v android debug
@@ -104,11 +93,9 @@ jobs:
         
         if [ $FIRST_BUILD_STATUS -ne 0 ]; then
           echo "⚠️ Первая попытка упала (Exit code: $FIRST_BUILD_STATUS). Вычищаем кэш и пробуем снова..."
-          
           rm -rf bin/*
           rm -rf .buildozer/
           rm -rf ~/.buildozer/android/platform/
-          
           echo "🔄 Запуск повторной чистой сборки..."
           for i in {1..5}; do echo y; done | buildozer -v android debug
         fi
