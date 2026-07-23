@@ -57,9 +57,9 @@ jobs:
           unzip \
           zip
         
-        # КРИТИЧЕСКИЙ ХАК ДЛЯ UBUNTU 24.04: Линкуем макросы libtool
-        sudo ln -s /usr/share/aclocal/libtool.m4 /usr/share/autoconf/autoconf/libtool.m4 || true
-        # Увеличиваем лимит inotify для Gradle
+        # ЖЁСТКОЕ КОПИРОВАНИЕ макросов libtool для Ubuntu 24.04
+        sudo cp /usr/share/aclocal/libtool.m4 /usr/share/autoconf/libtool.m4 || true
+        sudo cp /usr/share/aclocal/libtool.m4 /usr/share/autoconf/autoconf/libtool.m4 || true
         sudo sysctl -w fs.inotify.max_user_watches=524288 || true
 
     - name: Install Python dependencies
@@ -91,7 +91,7 @@ jobs:
         set +o pipefail
         
         echo "🚀 Запуск первой попытки сборки..."
-        buildozer -v android debug < <(while true; do echo "y"; sleep 1; done)
+        for i in {1..5}; do echo y; done | buildozer -v android debug
         FIRST_BUILD_STATUS=$?
         
         set -e
@@ -105,7 +105,7 @@ jobs:
           rm -rf ~/.buildozer/android/platform/
           
           echo "🔄 Запуск повторной чистой сборки..."
-          buildozer -v android debug < <(while true; do echo "y"; sleep 1; done)
+          for i in {1..5}; do echo y; done | buildozer -v android debug
         fi
       env:
         GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false"
