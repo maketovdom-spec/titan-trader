@@ -57,9 +57,11 @@ jobs:
           unzip \
           zip
         
-        # ЖЁСТКОЕ КОПИРОВАНИЕ макросов libtool для Ubuntu 24.04
-        sudo cp /usr/share/aclocal/libtool.m4 /usr/share/autoconf/libtool.m4 || true
+        # ФИНАЛЬНЫЙ ХАК ДЛЯ UBUNTU 24.04
+        # Обновляем libtool и копируем макросы в зону видимости autoconf
+        sudo libtoolize --force --copy
         sudo cp /usr/share/aclocal/libtool.m4 /usr/share/autoconf/autoconf/libtool.m4 || true
+        # Увеличиваем лимиты для Gradle
         sudo sysctl -w fs.inotify.max_user_watches=524288 || true
 
     - name: Install Python dependencies
@@ -89,6 +91,9 @@ jobs:
       run: |
         set +e
         set +o pipefail
+        
+        # КРИТИЧЕСКИ ВАЖНО: Указываем autoconf/aсlocal, где искать макросы libtool
+        export ACLOCAL_PATH=/usr/share/aclocal
         
         echo "🚀 Запуск первой попытки сборки..."
         for i in {1..5}; do echo y; done | buildozer -v android debug
