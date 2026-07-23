@@ -81,10 +81,13 @@ jobs:
       timeout-minutes: 45
       run: |
         (yes | buildozer -v android debug) || {
-          echo "⚠️ Первая попытка упала из-за сети. Сносим поврежденные архивы и папку bin, пробуем снова..."
+          echo "⚠️ Первая попытка упала из-за сети или сбоя кэша. Полностью вычищаем битые хвосты и пробуем снова..."
+          # Удаляем локальные артефакты сборки проекта
           rm -rf bin/*
+          rm -rf .buildozer/
+          # Удаляем кэш платформы Android, чтобы Buildozer скачал SDK/NDK заново
           rm -rf ~/.buildozer/android/platform/
-          buildozer clean
+          # Перезапускаем чистую сборку с нуля
           yes | buildozer -v android debug
         }
       env:
@@ -149,9 +152,7 @@ jobs:
     - name: Extract version from buildozer.spec
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       run: |
-        # Ищем строку version = ... (учитывая возможные пробелы) и очищаем от кавычек
         VERSION=$(grep -E '^version[[:space:]]*=[[:space:]]*' buildozer.spec | head -n 1 | cut -d'=' -f2 | tr -d '[:space:]' | tr -d '"' | tr -d "'")
-        # Если версия пустая, ставим дефолтную заглушку, чтобы workflow не упал
         if [ -z "$VERSION" ]; then VERSION="1.0.0"; fi
         echo "APP_VERSION=$VERSION" >> $GITHUB_ENV
 
