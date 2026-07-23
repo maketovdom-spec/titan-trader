@@ -4,10 +4,11 @@ package.name = titanproclient
 package.domain = org.titan.pro
 source.dir = .
 source.main = main.py
-source.include_exts = py,png,jpg,kv,atlas,json,so,db
+source.include_exts = py,png,jpg,kv,atlas,json,so,db,pyd,pyc,pem,crt
 version = 0.1
 
-requirements = python3==3.12.9,hostpython3==3.12.9,kivy==2.3.0,requests,urllib3,pytz,sqlite3,certifi,cryptography,cython==3.0.10
+# Убрали встроенный sqlite3, добавили openssl для корректной сборки cryptography
+requirements = python3==3.11.9,hostpython3==3.11.9,kivy==2.3.0,requests,urllib3,pytz,certifi,openssl,cryptography,cython==3.0.10
 
 android.permissions = INTERNET,WAKE_LOCK
 android.api = 33
@@ -16,13 +17,17 @@ android.ndk_api = 21
 android.ndk = 25b
 android.accept_sdk_license = True
 android.allow_insecure_keystore = True
+
+# Только 64-битная архитектура (современные устройства). Если нужно 32-битное, добавь ", armeabi-v7a"
 android.archs = arm64-v8a
 
 orientation = portrait
 fullscreen = 0
 log_level = 2
 warn_on_root = 0
-android.gradle_options = -Xmx2048m
+
+# Память согласована с GRADLE_OPTS в CI (4 ГБ)
+android.gradle_options = -Xmx4096m -Dorg.gradle.daemon=false
 
 [buildozer]
 log_level = 2
