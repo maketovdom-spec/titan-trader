@@ -22,7 +22,6 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # 🔧 ИСПРАВЛЕНИЕ: Убрали cache: 'pip', чтобы экшен не требовал файла requirements.txt
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
@@ -76,7 +75,14 @@ jobs:
 
     - name: Build APK with Buildozer
       timeout-minutes: 45
-      run: yes | buildozer -v android debug
+      # Сносим глобальный кэш (~/.buildozer) в случае сетевой ошибки, чтобы перекачать NDK начисто
+      run: |
+        (yes | buildozer -v android debug) || {
+          echo "⚠️ Первая попытка упала из-за сети. Сносим поврежденные архивы и пробуем снова..."
+          rm -rf ~/.buildozer/android/platform/
+          buildozer clean
+          yes | buildozer -v android debug
+        }
       env:
         GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false"
 
