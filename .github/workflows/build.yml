@@ -41,6 +41,7 @@ jobs:
           autoconf \
           automake \
           autoconf-archive \
+          m4 \
           libtool \
           libtool-bin \
           pkg-config \
@@ -55,6 +56,11 @@ jobs:
           cmake \
           unzip \
           zip
+        
+        # КРИТИЧЕСКИЙ ХАК ДЛЯ UBUNTU 24.04: Линкуем макросы libtool
+        sudo ln -s /usr/share/aclocal/libtool.m4 /usr/share/autoconf/autoconf/libtool.m4 || true
+        # Увеличиваем лимит inotify для Gradle
+        sudo sysctl -w fs.inotify.max_user_watches=524288 || true
 
     - name: Install Python dependencies
       run: |
@@ -72,7 +78,6 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-buildozer-v2-
 
-    # 🔒 Изолируем среду: Buildozer сам скачает SDK/NDK в ~/.buildozer
     - name: Isolate Android Environment Variables
       run: |
         echo "ANDROID_HOME=" >> $GITHUB_ENV
