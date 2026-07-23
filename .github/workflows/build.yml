@@ -20,6 +20,8 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -37,6 +39,7 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y \
           autoconf \
+          automake \
           autoconf-archive \
           libtool \
           libtool-bin \
@@ -64,7 +67,6 @@ jobs:
         path: |
           ~/.buildozer
           .buildozer
-        # ⚠️ КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: добавили v2, чтобы аннулировать старый битый кэш
         key: ${{ runner.os }}-buildozer-v2-${{ hashFiles('buildozer.spec') }}
         restore-keys: |
           ${{ runner.os }}-buildozer-v2-
@@ -79,7 +81,8 @@ jobs:
       timeout-minutes: 45
       run: |
         (yes | buildozer -v android debug) || {
-          echo "⚠️ Первая попытка упала из-за сети. Сносим поврежденные архивы и пробуем снова..."
+          echo "⚠️ Первая попытка упала из-за сети. Сносим поврежденные архивы и папку bin, пробуем снова..."
+          rm -rf bin/*
           rm -rf ~/.buildozer/android/platform/
           buildozer clean
           yes | buildozer -v android debug
@@ -87,62 +90,105 @@ jobs:
       env:
         GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false"
 
-    # =========================================================================
-    # 🔐 ЗАКРЫТАЯ ЗОНА
-    # =========================================================================
-    # - name: Sign Artifact (Future Release Template)
-    #   if: false
-    #   uses: r0adkll/sign-android-release@v1
-    #   with:
-    #     releaseDirectory: bin/
-    #     signingKeyBase64: ${{ secrets.ANDROID_SIGNING_KEY }}
-    #     alias: ${{ secrets.ANDROID_KEY_ALIAS }}
-    #     keyStorePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-    #     keyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
-    # =========================================================================
-
-    - name: Rename APK with commit hash
+    - name: Rename APK with commit hash and Export
+      id: rename_step
       run: |
         cd bin/
         SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-        for f in *.apk; do
-          mv "$f" "TITAN-Pro-${SHORT_SHA}-$f"
-        done
+        
+        ORIGINAL_APK=$(ls *.apk | head -n 1)
+        NEW_NAME="TITAN-Pro-${SHORT_SHA}-${ORIGINAL_APK}"
+        
+        mv "$ORIGINAL_APK" "$NEW_NAME"
+        
+        echo "FINAL_APK_PATH=bin/$NEW_NAME" >> $GITHUB_ENV
+
+    # 🔐 ПОДПИСЬ APK (Только для пушей в main)
+    - name: Sign Android APK
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      uses: r0adkll/sign-android-release@v1
+      id: sign_app
+      with:
+        releaseDirectory: bin/
+        outputDirectory: signed_bin/
+        signingKeyBase64: ${{ secrets.ANDROID_SIGNING_KEY }}
+        alias: ${{ secrets.ANDROID_KEY_ALIAS }}
+        keyStorePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        keyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+    # 🔐 НАДЕЖНАЯ СИНХРОНИЗАЦИЯ ПУТИ
+    - name: Consolidate APK Path
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: |
+        SIGNED_FILE="${{ steps.sign_app.outputs.signedArtifactPath }}"
+        TARGET_PATH="${{ env.FINAL_APK_PATH }}"
+        
+        rm -rf bin/*
+        mv "$SIGNED_FILE" "$TARGET_PATH"
+        rm -rf signed_bin/
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: apk-file
-        path: bin/*.apk
+        path: ${{ env.FINAL_APK_PATH }}
         if-no-files-found: error
 
-    # ⚙️ ЗАГЛУШКА ДЛЯ ТЕЛЕГРАМ (Спящий режим)
+    # 📝 ГЕНЕРАЦИЯ ЧЕЙНДЖЛОГА
+    - name: Generate Changelog
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: |
+        RAW_LOGS=$(git log -10 --pretty=format:"- %s")
+        
+        echo "CHANGELOG_RAW<<EOF" >> $GITHUB_ENV
+        echo "$RAW_LOGS" >> $GITHUB_ENV
+        echo "" >> $GITHUB_ENV
+        echo "EOF" >> $GITHUB_ENV
+
+    # 📦 ИЗВЛЕЧЕНИЕ ВЕРСИИ ИЗ buildozer.spec
+    - name: Extract version from buildozer.spec
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: |
+        # Ищем строку version = ... (учитывая возможные пробелы) и очищаем от кавычек
+        VERSION=$(grep -E '^version[[:space:]]*=[[:space:]]*' buildozer.spec | head -n 1 | cut -d'=' -f2 | tr -d '[:space:]' | tr -d '"' | tr -d "'")
+        # Если версия пустая, ставим дефолтную заглушку, чтобы workflow не упал
+        if [ -z "$VERSION" ]; then VERSION="1.0.0"; fi
+        echo "APP_VERSION=$VERSION" >> $GITHUB_ENV
+
+    # ⚙️ ОТПРАВКА В ТЕЛЕГРАМ (СПЯЩИЙ РЕЖИМ ДЛЯ РФ)
     - name: Send Telegram notification (Stub)
       uses: appleboy/telegram-action@v1.0.1
-      if: false
+      if: false # ❌ Отключено. Чтобы активировать для зарубежных релизов, просто удали эту строку.
       with:
-        token: ${{ secrets.TELEGRAM_BOT_TOKEN || 'STUB_TOKEN' }}
-        to: ${{ secrets.TELEGRAM_CHAT_ID || 'STUB_CHAT_ID' }}
+        token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        to: ${{ secrets.TELEGRAM_CHAT_ID }}
         format: markdown
         message: |
           🚀 *TITAN Pro Client APK собран успешно!*
           
           **Ветка:** `${{ github.ref_name }}`
+          **Версия:** `v${{ env.APP_VERSION }}-${{ github.run_number }}`
           **Коммит:** `${{ github.sha }}`
           **Автор:** ${{ github.actor }}
           
-          📦 Готовый APK-файл прикреплен ниже.
-        document: bin/*.apk
+          📦 APK готов к загрузке. Перейдите по ссылке ниже и скачайте артефакт:
+          ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          
+          📝 *Последние изменения:*
+          ${{ env.CHANGELOG_RAW }}
 
-    # 🚀 ЗАГЛУШКА ДЛЯ GITHUB RELEASES (Спящий режим)
-    - name: Create GitHub Release (Stub)
+    # 🚀 СОЗДАНИЕ GITHUB RELEASES
+    - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
-      if: false
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       with:
-        tag_name: v1.0.0-${{ github.run_number }}
-        name: "Release ${{ github.run_number }}"
-        files: bin/*.apk
-        draft: true
-        generate_release_notes: true
+        tag_name: v${{ env.APP_VERSION }}-${{ github.run_number }}
+        name: "Release v${{ env.APP_VERSION }} (Build #${{ github.run_number }})"
+        body: |
+          ## Что нового в этой сборке:
+          ${{ env.CHANGELOG_RAW }}
+        files: ${{ env.FINAL_APK_PATH }}
+        draft: false
+        generate_release_notes: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
