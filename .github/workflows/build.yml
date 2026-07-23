@@ -14,7 +14,6 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    # Разрешаем запись контента для безопасного создания релизов в будущем
     permissions:
       contents: write
 
@@ -38,7 +37,9 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y \
           autoconf \
+          autoconf-archive \
           libtool \
+          libtool-bin \
           pkg-config \
           zlib1g-dev \
           libncurses5-dev \
@@ -63,9 +64,10 @@ jobs:
         path: |
           ~/.buildozer
           .buildozer
-        key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec') }}
+        # ⚠️ КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: добавили v2, чтобы аннулировать старый битый кэш
+        key: ${{ runner.os }}-buildozer-v2-${{ hashFiles('buildozer.spec') }}
         restore-keys: |
-          ${{ runner.os }}-buildozer-
+          ${{ runner.os }}-buildozer-v2-
 
     - name: Clear Android Environment Variables
       run: |
@@ -75,7 +77,6 @@ jobs:
 
     - name: Build APK with Buildozer
       timeout-minutes: 45
-      # Сносим глобальный кэш (~/.buildozer) в случае сетевой ошибки, чтобы перекачать NDK начисто
       run: |
         (yes | buildozer -v android debug) || {
           echo "⚠️ Первая попытка упала из-за сети. Сносим поврежденные архивы и пробуем снова..."
@@ -87,7 +88,7 @@ jobs:
         GRADLE_OPTS: "-Xmx4g -Dorg.gradle.daemon=false"
 
     # =========================================================================
-    # 🔐 ЗАКРЫТАЯ ЗОНА: АРХИТЕКТУРНЫЕ ЗАГЛУШКИ НА БУДУЩЕЕ (RELEASE & SIGNING)
+    # 🔐 ЗАКРЫТАЯ ЗОНА
     # =========================================================================
     # - name: Sign Artifact (Future Release Template)
     #   if: false
