@@ -115,30 +115,23 @@ jobs:
         if [ -z "$VERSION" ]; then VERSION="1.0.0"; fi
         echo "APP_VERSION=$VERSION" >> $GITHUB_ENV
 
-    - name: Send Telegram notification (Stub)
-      uses: appleboy/telegram-action@v1.0.1
+    - name: Send Telegram notification
       if: false
+      uses: appleboy/telegram-action@v1.0.1
       with:
         token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         to: ${{ secrets.TELEGRAM_CHAT_ID }}
         format: markdown
         message: |
-           *TITAN Pro Client APK собран успешно!*
-          
-          **Ветка:** `${{ github.ref_name }}`
-          **Версия:** `v${{ env.APP_VERSION }}-${{ github.run_number }}`
-          **Коммит:** `${{ github.sha }}`
-          **Автор:** ${{ github.actor }}
-          
-          📦 APK готов к загрузке. Перейдите по ссылке ниже и скачайте артефакт:
-          ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          
-           *Последние изменения:*
-          ${{ env.CHANGELOG_RAW }}
+          TITAN Pro Client APK собран успешно!
+          Ветка: ${{ github.ref_name }}
+          Версия: v${{ env.APP_VERSION }}-${{ github.run_number }}
+          Коммит: ${{ github.sha }}
+          Автор: ${{ github.actor }}
 
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v2
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: v${{ env.APP_VERSION }}-${{ github.run_number }}
         name: "Release v${{ env.APP_VERSION }} (Build #${{ github.run_number }})"
