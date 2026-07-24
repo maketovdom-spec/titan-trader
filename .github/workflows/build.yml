@@ -43,13 +43,16 @@ jobs:
           libtool-bin pkg-config zlib1g-dev libncurses5-dev libgdbm-dev libssl-dev libffi-dev \
           libsqlite3-dev libbz2-dev lld cmake unzip zip
         
-        # АГРЕССИВНОЕ КОПИРОВАНИЕ: кладём макрос libtool в корень и во все возможные папки
-        sudo cp /usr/share/aclocal/libtool.m4 . || true
+        # АГРЕССИВНОЕ КОПИРОВАНИЕ: кладём макрос libtool во ВСЕ возможные папки
+        sudo cp /usr/share/aclocal/libtool.m4 /usr/local/share/aclocal/libtool.m4 || true
         sudo cp /usr/share/aclocal/libtool.m4 /usr/share/autoconf/autoconf/libtool.m4 || true
         sudo cp /usr/share/aclocal/libtool.m4 /usr/share/autoconf/libtool.m4 || true
+        sudo cp /usr/share/aclocal/libtool.m4 /usr/share/aclocal-1.16/libtool.m4 || true
+        sudo cp /usr/share/aclocal/libtool.m4 . || true
         
-        # Расширяем путь для aclocal (на случай, если autoconf ищет там)
-        echo "ACLOCAL_PATH=/usr/share/aclocal:/usr/share/autoconf/autoconf" >> $GITHUB_ENV
+        # Расширяем путь для aclocal МАКСИМАЛЬНО
+        echo "ACLOCAL_PATH=/usr/share/aclocal:/usr/local/share/aclocal:/usr/share/autoconf:/usr/share/autoconf/autoconf:/usr/share/aclocal-1.16" >> $GITHUB_ENV
+        echo "ACLOCAL_FLAGS=-I /usr/share/aclocal -I /usr/local/share/aclocal -I /usr/share/autoconf" >> $GITHUB_ENV
         
         sudo sysctl -w fs.inotify.max_user_watches=524288 || true
 
@@ -65,9 +68,9 @@ jobs:
           ~/.buildozer
           .buildozer
           !.buildozer/android/platform/build
-        key: ${{ runner.os }}-buildozer-v2-${{ hashFiles('buildozer.spec') }}
+        key: ${{ runner.os }}-buildozer-v3-${{ hashFiles('buildozer.spec') }}
         restore-keys: |
-          ${{ runner.os }}-buildozer-v2-
+          ${{ runner.os }}-buildozer-v3-
 
     - name: Isolate Android Environment Variables
       run: |
@@ -81,8 +84,9 @@ jobs:
         set +e
         set +o pipefail
         
-        # Явно указываем путь к макросам
-        export ACLOCAL_PATH=/usr/share/aclocal:/usr/share/autoconf/autoconf
+        # Явно указываем путь к макросам ПЕРЕД запуском
+        export ACLOCAL_PATH=/usr/share/aclocal:/usr/local/share/aclocal:/usr/share/autoconf:/usr/share/autoconf/autoconf:/usr/share/aclocal-1.16
+        export ACLOCAL_FLAGS="-I /usr/share/aclocal -I /usr/local/share/aclocal -I /usr/share/autoconf"
         
         echo "🚀 Запуск первой попытки сборки..."
         for i in {1..5}; do echo y; done | buildozer -v android debug
@@ -148,7 +152,7 @@ jobs:
         path: ${{ env.FINAL_APK_PATH }}
         if-no-files-found: error
 
-    # 📝 ГЕНЕРАЦИЯ ЧЕЙНДЖЛОГА
+    #  ГЕНЕРАЦИЯ ЧЕЙНДЖЛОГА
     - name: Generate Changelog
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       run: |
@@ -187,7 +191,7 @@ jobs:
           📝 *Последние изменения:*
           ${{ env.CHANGELOG_RAW }}
 
-    # 🚀 СОЗДАНИЕ GITHUB RELEASES
+    #  СОЗДАНИЕ GITHUB RELEASES
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
